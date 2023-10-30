@@ -147,6 +147,54 @@ public class Kmeans {
 	}
 	
 	/**
+	 * Calculate the class membership for vector under given centroids
+	 * 
+	 * @param v_in : vector
+	 * @param in_centroids : centroids
+	 * @return class membership as int
+	 * @throws SQLException
+	 */
+	public static int euclidean_distance_classmembership_cpu_float(double[] v_in, float[] in_centroids) throws SQLException {
+		int Nc = v_in.length;
+		int K = in_centroids.length/Nc;
+		
+		// <- Remove uppon change of db to double table
+		// Convert in
+		float[] v = new float[Nc];
+		for(int i = 0; i < Nc; i++) {
+			v[i] = (float) v_in[i];
+		}
+		
+		// Unpack centroids;
+		float[][] centroids = float_1D_to_float_2D(in_centroids, K, Nc);
+
+		// Precompute centroid dists
+		float[] nc = new float[K];
+		for(int k = 0; k < K; k++) {
+			nc[k] = 0;
+			for(int i = 0; i < Nc; i++) {
+				nc[k] += centroids[k][i]*centroids[k][i];
+			}
+			nc[k] *= 0.5;
+		}
+			
+		int minc = 0;
+		float d = approx_euclidean_distance(v,centroids[0],nc[0]);
+		for(int k = 1; k < K; k++) {
+			
+			float dist = approx_euclidean_distance(v,centroids[k],nc[k]);
+			
+			if(dist < d) {
+				minc = k;
+				d = dist;
+			}
+		}		
+		
+		return minc;	
+	}
+	
+	
+	/**
 	 * TornadoVM based calculation of kmeans stochastic gradients
 	 * (Distances are efficiently calculated via decomposition of the norm)
 	 * (Return to db: Centroid gradients as float[][] and # update counter as int[])
