@@ -3,8 +3,13 @@ package ai.sedn.unsupervised;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Iterator;
+import java.util.LinkedList;
+import org.postgresql.pljava.ResultSetProvider;
+
 
 import uk.ac.manchester.tornado.api.GridScheduler;
 import uk.ac.manchester.tornado.api.ImmutableTaskGraph;
@@ -60,6 +65,158 @@ public class Kmeans {
 		ResultSet rs = stmt.executeQuery();	
 			
 		return new db_object(rs,Nc,array);	
+	}
+	
+	/**
+	 * Runs K-means algorithm on datanodes
+	 * 
+	 * @param table : database table with data
+	 * @param cols : Column names ',' separated or name of column with 1D array (size can optionally be indicated with name:int)
+	 * @param K : Number of centroids
+	 * @param I : Number of iterations
+	 * @param batch_percent : Percent of data to be considered for the batch
+	 * @param use_tvm : Use TornadoVM for gradient calculation
+	 * @param tvm_batch_size :
+	 * @throws SQLException
+	 */
+	public static boolean kmeans_control_float(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, ResultSet receiver) throws SQLException {
+		
+		// Init db connection
+		Connection conn = DriverManager.getConnection(m_url);
+				
+		// Obtain datanode information
+		String query = "select string_agg(node_name,',') from pgxc_node where node_type='D';";
+		
+		Statement stmt = conn.createStatement();
+		ResultSet rs = stmt.executeQuery(query);	
+		rs.next();
+		
+		String nodes = rs.getString(1);
+		int Nn = nodes.split(",").length;
+			
+		// Query for Nc
+		int Nc = cols.split(",").length;
+		if(Nc < 2) {
+			// Check if array length is encoded in cols:
+			String[] parts = cols.split(":");
+			if(parts.length < 2) {
+				// Query db for Nc
+				stmt = conn.createStatement();
+				rs = stmt.executeQuery("select ARRAY_LENGTH("+cols+",1) from "+table+" limit 1;");	
+				rs.next();
+				Nc = rs.getInt(1);
+			} else {
+				Nc = Integer.valueOf(parts[1]);
+			}		
+		}
+			
+		// Query for random datapoints as initial centroids (globally selected)
+		float[][] centroids = new float[K][Nc];
+		
+		if(Nc > 1) {
+			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(0.25) limit "+K;
+		} else {
+			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(0.25) where cardinality("+cols+")!=0 limit "+K;
+		}
+		
+		stmt = conn.createStatement();
+		rs = stmt.executeQuery(query);	
+		
+		for(int i = 0; i < K; i++) {
+			rs.next();
+			
+			if(Nc > 1) {
+				for(int c = 1; c < Nc; c++) {
+					centroids[i][c-1] = rs.getFloat(c);
+				}
+			} else {
+				Double[] A = (Double[]) rs.getObject(1); // <- To be changed after change in DB ! ( to Float )
+				
+				for(int c = 0; c < Nc; c++) {
+					centroids[i][c] = A[c].floatValue();	
+				}
+			}
+
+		}
+			
+		// Set function
+		String func;
+		if(use_tvm) {
+			func = "execute direct on ("+nodes+") $$select kmeans_gradients_tvm_float";
+			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+","+tvm_batch_size+",";
+		}
+		else {
+			func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float";
+			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+",";
+		}
+				
+		float[][][] partialGradients = new float[Nn][K][Nc];
+		Integer[][] Ccounts = new Integer[Nn][K];
+		
+		//LinkedList<Integer> receiver = new LinkedList<>();
+		
+		// Main loop
+		for(int i = 0; i < I; i++) {
+			// Reset
+			int[] counts = new int[K];
+			float[][] gradients = new float[K][Nc];
+		
+			// Set query
+			query = func + "'"+getPGarrayFrom2Darray(centroids)+"')$$;";
+			
+			// Execute
+			stmt = conn.createStatement();
+			rs = stmt.executeQuery(query);
+			
+			// Collect
+			int c = 0;
+			while(rs.next()) { 
+				
+				ResultSet tmp = (ResultSet) rs.getObject(1);
+				// 1. Gradients as 1D Float array <- Autoconvert from plJava. Fix for new versions
+				partialGradients[c] = float_1D_to_float_2D( cast1DFloatArray((Float[]) tmp.getObject(1)), K, Nc);
+				
+				// 2. Counts as 1D Int array
+				Ccounts[c] = (Integer[]) tmp.getObject(2);
+							
+				c++;			
+			}
+		
+			// Calc new centroids
+			for(int n = 0; n < Nn; n++) {
+				for(int k = 0; k < K; k++) {
+					if(Ccounts[n][k] > 0) {
+						// Add counts
+						counts[k] += Ccounts[n][k];
+						// Add partial gradients
+						for(int j = 0; j < Nc; j++) {
+							gradients[k][j] += partialGradients[n][k][j];
+						}
+					}
+				}
+			}
+				
+			// Add
+			for(int k=0; k < K; k++) {
+				if(counts[k] > 0) {
+					for(int j = 0; j < Nc; j++) {
+						centroids[k][j] += 1./counts[k]*gradients[k][j];
+					}
+				}
+			}	
+		}
+	
+		// Return final centroids
+		Integer[] test = new Integer[5];
+		receiver.updateObject(1, cast2DFloatArray(centroids));
+		
+		// ToDo: Return history <- Use iterator, but needs fix of plJava
+		
+		// Force GC
+		System.gc();
+		System.runFinalization();
+		
+		return true;		
 	}
 	
 	/**
@@ -416,6 +573,20 @@ public class Kmeans {
 		return N;
 	}
 	
+	/**
+	 * Method to convert Float[] to float[]
+	 * @param A
+	 * @return
+	 */
+	private static float[] cast1DFloatArray(Float[] A) {
+		float[] N = new float[A.length];
+		
+		for(int i = 0; i < A.length; i++) {
+				N[i] = A[i];
+		}
+		return N;
+	}
+	
 	
 	/**
 	 * Tornado kernel to search for min distance in parallel over batch
@@ -482,6 +653,26 @@ public class Kmeans {
 		System.arraycopy(A, Nc*r, row, 0, Nc);
 				
 		return row;
+	}
+	
+	/**
+	 * Converts 2D matrix to postgres 1D array string
+	 * @param A : 2D matrix 
+	 * @return
+	 */
+	private static String getPGarrayFrom2Darray(float[][] A) {
+		String s = "{";
+		
+		for(int i = 0; i < A.length; i++) {
+			for(int j = 0; j < A[0].length; j++) {
+				s+=A[i][j]+",";
+			}
+		}
+		
+		s = s.substring(0, s.length()-1);
+		s+="}";
+		
+		return s;
 	}
 	
 }
