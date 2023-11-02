@@ -57,7 +57,7 @@ public class Kmeans {
 			}
 			
 			// Query for 1D array
-			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+cols+")!=0;"; 	
+			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
 			array = true;
 		}
 		
@@ -96,15 +96,18 @@ public class Kmeans {
 			
 		// Query for Nc
 		int Nc = cols.split(",").length;
+		String[] parts = cols.split(":");
+		boolean array = false;
 		if(Nc < 2) {
+			array = true;
 			// Check if array length is encoded in cols:
-			String[] parts = cols.split(":");
 			if(parts.length < 2) {
 				// Query db for Nc
 				stmt = conn.createStatement();
 				rs = stmt.executeQuery("select ARRAY_LENGTH("+cols+",1) from "+table+" limit 1;");	
 				rs.next();
 				Nc = rs.getInt(1);
+				
 			} else {
 				Nc = Integer.valueOf(parts[1]);
 			}		
@@ -113,10 +116,10 @@ public class Kmeans {
 		// Query for random datapoints as initial centroids (globally selected)
 		float[][] centroids = new float[K][Nc];
 		
-		if(Nc > 1) {
+		if(!array) {
 			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(0.25) limit "+K;
 		} else {
-			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(0.25) where cardinality("+cols+")!=0 limit "+K;
+			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM(0.25) where cardinality("+parts[0]+")!=0 limit "+K;
 		}
 		
 		stmt = conn.createStatement();
@@ -125,7 +128,7 @@ public class Kmeans {
 		for(int i = 0; i < K; i++) {
 			rs.next();
 			
-			if(Nc > 1) {
+			if(!array) {
 				for(int c = 1; c < Nc; c++) {
 					centroids[i][c-1] = rs.getFloat(c);
 				}
