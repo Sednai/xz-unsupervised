@@ -8,8 +8,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.ArrayList;
 import org.postgresql.pljava.ResultSetProvider;
-
+import org.postgresql.pljava.adt.Datetime.Time;
 
 import uk.ac.manchester.tornado.api.GridScheduler;
 import uk.ac.manchester.tornado.api.ImmutableTaskGraph;
@@ -67,6 +68,20 @@ public class Kmeans {
 		return new db_object(rs,Nc,array);	
 	}
 	
+	// TEST
+	public static Iterator kmeans_test() throws SQLException {
+	
+		ArrayList<Float[][]> A = new ArrayList<Float[][]>();
+		
+		Float[][] F = new Float[5][5];
+		F[0][0] = 1.f;
+		F[4][3] = 2.f;
+		
+		A.add(F);
+		
+		return A.iterator();
+	}
+	
 	/**
 	 * Runs K-means algorithm on datanodes
 	 * 
@@ -76,10 +91,11 @@ public class Kmeans {
 	 * @param I : Number of iterations
 	 * @param batch_percent : Percent of data to be considered for the batch
 	 * @param use_tvm : Use TornadoVM for gradient calculation
-	 * @param tvm_batch_size :
+	 * @param tvm_batch_size : Batch size for device
+	 * @param return: Iterator over epoche centroids
 	 * @throws SQLException
 	 */
-	public static boolean kmeans_control_float(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, ResultSet receiver) throws SQLException {
+	public static Iterator kmeans_control_float(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size) throws SQLException {
 		
 		// Init db connection
 		Connection conn = DriverManager.getConnection(m_url);
@@ -156,7 +172,7 @@ public class Kmeans {
 		float[][][] partialGradients = new float[Nn][K][Nc];
 		Integer[][] Ccounts = new Integer[Nn][K];
 		
-		//LinkedList<Integer> receiver = new LinkedList<>();
+		ArrayList<float[][]> receiver = new ArrayList<>();
 		
 		// Main loop
 		for(int i = 0; i < I; i++) {
@@ -173,6 +189,8 @@ public class Kmeans {
 			
 			// Collect
 			int c = 0;
+			float[] stats = new float[1];
+			
 			while(rs.next()) { 
 				
 				ResultSet tmp = (ResultSet) rs.getObject(1);
@@ -181,10 +199,18 @@ public class Kmeans {
 				
 				// 2. Counts as 1D Int array
 				Ccounts[c] = (Integer[]) tmp.getObject(2);
-							
+						
+				// 3. Collect statistics
+				float[] stats_tmp = cast1DFloatArray( (Float[]) tmp.getObject(3) );
+				
+				// Add
+				vec_add(stats, stats_tmp);
+				
 				c++;			
 			}
 		
+			vec_mul(stats,(float) 1./c);
+			
 			// Calc new centroids
 			for(int n = 0; n < Nn; n++) {
 				for(int k = 0; k < K; k++) {
@@ -207,19 +233,16 @@ public class Kmeans {
 					}
 				}
 			}	
+		
+		// Add to return
+		receiver.add( array2DdeepCopy(centroids) );
 		}
 	
-		// Return final centroids
-		Integer[] test = new Integer[5];
-		receiver.updateObject(1, cast2DFloatArray(centroids));
-		
-		// ToDo: Return history <- Use iterator, but needs fix of plJava
-		
 		// Force GC
 		System.gc();
 		System.runFinalization();
 		
-		return true;		
+		return receiver.iterator();		
 	}
 	
 	/**
@@ -238,8 +261,15 @@ public class Kmeans {
 	 */
 	public static boolean kmeans_gradients_cpu_float(String table, String cols, int K, float batch_percent, float[] in_centroids, ResultSet receiver) throws SQLException {
 				
+		// Prepare statistics collection
+		float[] runstats = new float[2];
+		
 		// Prepare data ResultSet
+		long tic = System.currentTimeMillis();
 		db_object rs = prepare_db_data(table,cols,batch_percent);
+		long toc = System.currentTimeMillis();
+		
+		runstats[0] = toc-tic;
 		
 		// # columns
 		int Nc = rs.Nc;
@@ -252,7 +282,9 @@ public class Kmeans {
 		int[] ncount = new int[K];
 		// Gradients
 		float[][] gradients = new float[K][Nc];
-			
+		
+		tic = System.currentTimeMillis();
+		
 		// Main loop over data
 		while ( rs.R.next() ) {
 			// Build vec
@@ -295,9 +327,13 @@ public class Kmeans {
 		for(int k = 0; k < K; k++) {
 			vec_muladd(gradients[k],-ncount[k],centroids[k]);
 		}
-				
+		
+		toc = System.currentTimeMillis();
+		runstats[1] = toc-tic;
+		
 		receiver.updateObject(1, cast2DFloatArray(gradients));		
 		receiver.updateObject(2, ncount);		
+		receiver.updateObject(3, runstats);
 		
 		// Force GC
 		System.gc();
@@ -370,10 +406,16 @@ public class Kmeans {
 	 * @throws SQLException
 	 */
 	public static boolean kmeans_gradients_tvm_float(String table, String cols, int Kin, float batch_percent, int tvm_batch_size, float[] in_centroids, ResultSet receiver) throws SQLException {
+		// Prepare stats
+		float[] runstats = new float[2];
 		
 		// Prepare data ResultSet
+		long tic = System.currentTimeMillis();
 		db_object rs = prepare_db_data(table,cols,batch_percent);
+		long toc = System.currentTimeMillis();
 				
+		runstats[0] = toc-tic;
+		
 		// Vars for Tornado
 		int[] Nc = new int[1];
 		Nc[0] = rs.Nc;
@@ -387,6 +429,8 @@ public class Kmeans {
 		float[] d = new float[tvm_batch_size*Kin];
 		int[] K = new int[1];
 		K[0] = Kin;
+		
+		tic = System.currentTimeMillis(); // Global run time	
 		
 		// Centroids length
 		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
@@ -467,9 +511,15 @@ public class Kmeans {
 		for(int k = 0; k < K[0]; k++) {
 			vec_muladd(gradients[k],-ncount[k],getRowFrom2Darray(in_centroids,k,Nc[0]));
 		}
+		
+		toc = System.currentTimeMillis();
+		runstats[1] = toc-tic;
 			
 		receiver.updateObject(1, cast2DFloatArray(gradients));		
 		receiver.updateObject(2, ncount);		
+		receiver.updateObject(3, runstats);
+		
+		executor_distance.freeDeviceMemory();
 		
 		// Force GC
 		System.gc();
@@ -529,6 +579,18 @@ public class Kmeans {
 	}
 	
 	/**
+	 * Method to multiply vector by constant: v = v*c
+	 * @param v : vector
+	 * @param c : constant
+	 */
+	private static void vec_mul(float[] v, float c) {
+		for(int i = 0; i < v.length; i++) {
+			v[i] = v[i]*c;
+		}	
+	}
+	
+	
+	/**
 	 * Method to add multiple of vector to vector: v1 = v1 + alpha v2;
 	 * @param v1 : vector 1
 	 * @param alpha : constant
@@ -553,6 +615,22 @@ public class Kmeans {
 		
 		for(int i = 0; i < d1; i++) {
 			System.arraycopy(F, i*d2, A[i], 0, d2);
+		}
+		
+		return A;
+	}
+	
+	/** 
+	 * Method to do a deep copy of 2d float array
+	 * @param IN : Array to copy
+	 * @return Deep copy of IN
+	 */
+	private static float[][] array2DdeepCopy(float[][] IN) {
+		float[][] A = new float[IN.length][];
+		
+		for(int i = 0; i < IN.length; i++) {
+			A[i] = new float[IN[i].length];
+			System.arraycopy(IN[i], 0, A[i], 0, IN[i].length);
 		}
 		
 		return A;
