@@ -68,18 +68,82 @@ public class Kmeans {
 		return new db_object(rs,Nc,array);	
 	}
 	
-	// TEST
-	public static Iterator kmeans_test() throws SQLException {
 	
-		ArrayList<Float[][]> A = new ArrayList<Float[][]>();
+	public static String kmeans_test(float[][] in) {
 		
-		Float[][] F = new Float[5][5];
-		F[0][0] = 1.f;
-		F[4][3] = 2.f;
+		String s = "TEST:";
 		
-		A.add(F);
+		/*
+		for(int i = 0; i< in.length; i++) {
+			for(int j = 0; j < in[i].length; i++) {
+				s += in[i][j]+" ";
+			}
+			s+= "\n";
+		}
+		*/
 		
-		return A.iterator();
+		return s;
+	}
+	
+	// TEST <- To Remove !
+	public static void kmeans_main(String[] args) {
+		
+		int Kin = 5;
+		int Ncin = 80;
+		int tvm_batch_size = 100000;
+		float[] in_centroids = new float[Kin*Ncin];
+		
+		
+		// Vars for Tornado
+		int[] Nc = new int[1];
+		Nc[0] = Ncin;
+		
+		int[] N = new int[1];
+		float[] centroids = new float[Kin*Nc[0]];
+		System.arraycopy(in_centroids, 0, centroids, 0, in_centroids.length);
+		
+		int[] ccentroid = new int[tvm_batch_size];
+		float[] v_batch = new float[tvm_batch_size*Nc[0]];
+		float[] d = new float[tvm_batch_size*Kin];
+		int[] K = new int[1];
+		K[0] = Kin;
+			
+		// Centroids length
+		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
+				
+		
+		// Init Tornado
+		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
+		
+		GridScheduler gridScheduler = new GridScheduler();
+		
+		KernelContext context = new KernelContext();    
+		TaskGraph taskGraph = new TaskGraph("s0")
+				.transferToDevice(DataTransferMode.FIRST_EXECUTION, centroids, ccentroid, d, Nc, K, centroids_L)       	
+				.transferToDevice(DataTransferMode.EVERY_EXECUTION, v_batch, N)
+	        	.task("t0", Kmeans::approx_euclidean_distance_tvm_kernel, context,  v_batch, centroids, N, d, Nc, K, centroids_L)
+	        	.task("t1", Kmeans::search_min_distance_tvm_kernel, context, d, N, ccentroid, K)
+	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
+		
+		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
+		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
+		
+		gridScheduler.setWorkerGrid("s0.t0", gridworker);
+		gridScheduler.setWorkerGrid("s0.t1", gridworker);
+		
+		for(int i = 0; i < 100; i++) {
+
+    	    System.out.println((i+1)+"th exec");
+    	   
+			// Calc all distances
+			gridworker.setGlobalWork(N[0], 1, 1);
+			
+    	    executor_distance.withGridScheduler(gridScheduler).execute();
+    	    
+		}
+		
+		
+		
 	}
 	
 	/**
@@ -263,13 +327,10 @@ public class Kmeans {
 				
 		// Prepare statistics collection
 		float[] runstats = new float[2];
+		long tic_global = System.currentTimeMillis();
 		
 		// Prepare data ResultSet
-		long tic = System.currentTimeMillis();
 		db_object rs = prepare_db_data(table,cols,batch_percent);
-		long toc = System.currentTimeMillis();
-		
-		runstats[0] = toc-tic;
 		
 		// # columns
 		int Nc = rs.Nc;
@@ -282,12 +343,13 @@ public class Kmeans {
 		int[] ncount = new int[K];
 		// Gradients
 		float[][] gradients = new float[K][Nc];
-		
-		tic = System.currentTimeMillis();
-		
+			
 		// Main loop over data
 		while ( rs.R.next() ) {
+			
 			// Build vec
+			long tic_io = System.currentTimeMillis();
+			
 			float[] v = new float[Nc];
 			
 			if(rs.array) {
@@ -303,6 +365,8 @@ public class Kmeans {
 					v[c-1] = rs.R.getFloat(c);
 				}
 			}
+			long toc_io = System.currentTimeMillis();
+			runstats[1] += toc_io-tic_io;
 		
 			// Find min distance centroid
 			int minc = 0;
@@ -328,8 +392,9 @@ public class Kmeans {
 			vec_muladd(gradients[k],-ncount[k],centroids[k]);
 		}
 		
-		toc = System.currentTimeMillis();
-		runstats[1] = toc-tic;
+		long toc_global = System.currentTimeMillis();
+		
+		runstats[0] = toc_global-tic_global;
 		
 		receiver.updateObject(1, cast2DFloatArray(gradients));		
 		receiver.updateObject(2, ncount);		
@@ -409,12 +474,10 @@ public class Kmeans {
 		// Prepare stats
 		float[] runstats = new float[2];
 		
+		long tic_global = System.currentTimeMillis();
+			
 		// Prepare data ResultSet
-		long tic = System.currentTimeMillis();
 		db_object rs = prepare_db_data(table,cols,batch_percent);
-		long toc = System.currentTimeMillis();
-				
-		runstats[0] = toc-tic;
 		
 		// Vars for Tornado
 		int[] Nc = new int[1];
@@ -429,9 +492,7 @@ public class Kmeans {
 		float[] d = new float[tvm_batch_size*Kin];
 		int[] K = new int[1];
 		K[0] = Kin;
-		
-		tic = System.currentTimeMillis(); // Global run time	
-		
+			
 		// Centroids length
 		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
 				
@@ -464,6 +525,7 @@ public class Kmeans {
 		while(!stop) {
 			
 			// Build batch
+			long tic_io = System.currentTimeMillis();
 			N[0] = 0;
 			for(int i = 0; i < tvm_batch_size; i++) {
 				// Stop if no more data
@@ -487,7 +549,9 @@ public class Kmeans {
 				}
 				N[0]++;
 			}
-		
+			long toc_io = System.currentTimeMillis();
+			runstats[1] += toc_io-tic_io;
+			
 			// Calc
 			if(N[0] > 0) {
 				
@@ -512,9 +576,9 @@ public class Kmeans {
 			vec_muladd(gradients[k],-ncount[k],getRowFrom2Darray(in_centroids,k,Nc[0]));
 		}
 		
-		toc = System.currentTimeMillis();
-		runstats[1] = toc-tic;
-			
+		long toc_global = System.currentTimeMillis();
+		runstats[0] = toc_global-tic_global;
+		
 		receiver.updateObject(1, cast2DFloatArray(gradients));		
 		receiver.updateObject(2, ncount);		
 		receiver.updateObject(3, runstats);
@@ -542,6 +606,7 @@ public class Kmeans {
 		}
 		return nc-d;
 	}
+	
 	
 	
 	/**
@@ -720,6 +785,56 @@ public class Kmeans {
 			d[i*Ncentr[0]+j] = nc[j]-tmp;
 		}
 	}
+	
+	/**
+	 * Euclidean distance of two vectors
+	 * @param v1 : vector 1
+	 * @param v2 : vector 2
+	 * @return distance
+	 */
+	public static float euclidean_distance_cpu(float[] v1, float[] v2) {
+		float d = 0;
+		for(int i = 0; i < v1.length; i++) {
+			d += (v1[i]-v2[i])*(v1[i]-v2[i]);
+		}
+		return (float) Math.sqrt(d);
+	}
+	
+	/**
+	 * Returns score for class membership under euclidean distance
+	 * 
+	 * @param v_in : data vector
+	 * @param in_centroids : Centroids
+	 * @return scores for class membership
+	 * @throws SQLException
+	 */
+	public static float[] euclidean_classmembership_score_cpu(double[] v_in, float[] in_centroids) throws SQLException {
+		int Nc = v_in.length;
+		int K = in_centroids.length/Nc;
+		
+		// Convert in
+		float[] v = new float[Nc];
+		for(int i = 0; i < Nc; i++) {
+			v[i] = (float) v_in[i];
+		}
+		// Unpack current centroids;
+		float[][] centroids = float_1D_to_float_2D(in_centroids, K, Nc);
+	
+		float[] dist = new float[K];
+		float total = 0;
+		
+		for(int k = 0; k < K; k++) {	
+			dist[k] = (float) 1./euclidean_distance_cpu(v,centroids[k]);
+			total += dist[k];
+		}		
+		
+		for(int k = 0; k < K; k++) {	
+			dist[k]= dist[k]/total;
+		}	
+		
+		return dist;
+	}
+	
 	
 	/**
 	 * Returns row of 2D matrix encoded in 1D array
