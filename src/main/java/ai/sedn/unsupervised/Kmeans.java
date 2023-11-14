@@ -29,12 +29,14 @@ import uk.ac.manchester.tornado.api.KernelContext;
  * @author krefl
  */
 public class Kmeans {
+	
 	private static String m_url = "jdbc:default:connection";
 
 	private static db_object prepare_db_data(String table, String cols, float batch_percent) throws SQLException {
+		 
 		// Init db connection
 		Connection conn = DriverManager.getConnection(m_url);
-		
+	
 		// Detect # cols:
 		int Nc = cols.split(",").length;
 		
@@ -43,6 +45,7 @@ public class Kmeans {
 		if (Nc > 1) {
 			// Query for individual columns
 			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+");"; 
+			
 			array = false;
 		} else {
 			// Check if array length is encoded in cols:
@@ -50,6 +53,7 @@ public class Kmeans {
 			if(parts.length < 2) {
 				// Query db for Nc
 				PreparedStatement stmt = conn.prepareStatement("select ARRAY_LENGTH("+cols+",1) from "+table+" limit 1;");
+				stmt.setFetchSize(10000);
 				ResultSet rs = stmt.executeQuery();	
 				rs.next();
 				Nc = rs.getInt(1);
@@ -59,92 +63,19 @@ public class Kmeans {
 			
 			// Query for 1D array
 			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
+			
 			array = true;
 		}
 		
 		PreparedStatement stmt = conn.prepareStatement(query);
+		stmt.setFetchSize(10000);
+	
 		ResultSet rs = stmt.executeQuery();	
 			
 		return new db_object(rs,Nc,array);	
 	}
 	
 	
-	public static String kmeans_test(float[][] in) {
-		
-		String s = "TEST:";
-		
-		/*
-		for(int i = 0; i< in.length; i++) {
-			for(int j = 0; j < in[i].length; i++) {
-				s += in[i][j]+" ";
-			}
-			s+= "\n";
-		}
-		*/
-		
-		return s;
-	}
-	
-	// TEST <- To Remove !
-	public static void kmeans_main(String[] args) {
-		
-		int Kin = 5;
-		int Ncin = 80;
-		int tvm_batch_size = 100000;
-		float[] in_centroids = new float[Kin*Ncin];
-		
-		
-		// Vars for Tornado
-		int[] Nc = new int[1];
-		Nc[0] = Ncin;
-		
-		int[] N = new int[1];
-		float[] centroids = new float[Kin*Nc[0]];
-		System.arraycopy(in_centroids, 0, centroids, 0, in_centroids.length);
-		
-		int[] ccentroid = new int[tvm_batch_size];
-		float[] v_batch = new float[tvm_batch_size*Nc[0]];
-		float[] d = new float[tvm_batch_size*Kin];
-		int[] K = new int[1];
-		K[0] = Kin;
-			
-		// Centroids length
-		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
-				
-		
-		// Init Tornado
-		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
-		
-		GridScheduler gridScheduler = new GridScheduler();
-		
-		KernelContext context = new KernelContext();    
-		TaskGraph taskGraph = new TaskGraph("s0")
-				.transferToDevice(DataTransferMode.FIRST_EXECUTION, centroids, ccentroid, d, Nc, K, centroids_L)       	
-				.transferToDevice(DataTransferMode.EVERY_EXECUTION, v_batch, N)
-	        	.task("t0", Kmeans::approx_euclidean_distance_tvm_kernel, context,  v_batch, centroids, N, d, Nc, K, centroids_L)
-	        	.task("t1", Kmeans::search_min_distance_tvm_kernel, context, d, N, ccentroid, K)
-	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
-		
-		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
-		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
-		
-		gridScheduler.setWorkerGrid("s0.t0", gridworker);
-		gridScheduler.setWorkerGrid("s0.t1", gridworker);
-		
-		for(int i = 0; i < 100; i++) {
-
-    	    System.out.println((i+1)+"th exec");
-    	   
-			// Calc all distances
-			gridworker.setGlobalWork(N[0], 1, 1);
-			
-    	    executor_distance.withGridScheduler(gridScheduler).execute();
-    	    
-		}
-		
-		
-		
-	}
 	
 	/**
 	 * Runs K-means algorithm on datanodes
@@ -213,10 +144,10 @@ public class Kmeans {
 					centroids[i][c-1] = rs.getFloat(c);
 				}
 			} else {
-				Double[] A = (Double[]) rs.getObject(1); // <- To be changed after change in DB ! ( to Float )
+				double[] A = (double[]) rs.getObject(1); // <- To be changed after change in DB ! ( to Float )
 				
 				for(int c = 0; c < Nc; c++) {
-					centroids[i][c] = A[c].floatValue();	
+					centroids[i][c] = (float) A[c];
 				}
 			}
 
@@ -234,8 +165,8 @@ public class Kmeans {
 		}
 				
 		float[][][] partialGradients = new float[Nn][K][Nc];
-		Integer[][] Ccounts = new Integer[Nn][K];
-		
+		int[][] Ccounts = new int[Nn][K];
+			
 		ArrayList<float[][]> receiver = new ArrayList<>();
 		
 		// Main loop
@@ -259,13 +190,13 @@ public class Kmeans {
 				
 				ResultSet tmp = (ResultSet) rs.getObject(1);
 				// 1. Gradients as 1D Float array <- Autoconvert from plJava. Fix for new versions
-				partialGradients[c] = float_1D_to_float_2D( cast1DFloatArray((Float[]) tmp.getObject(1)), K, Nc);
+				partialGradients[c] = (float[][]) tmp.getObject(1);
 				
 				// 2. Counts as 1D Int array
-				Ccounts[c] = (Integer[]) tmp.getObject(2);
+				Ccounts[c] = (int[]) tmp.getObject(2);
 						
 				// 3. Collect statistics
-				float[] stats_tmp = cast1DFloatArray( (Float[]) tmp.getObject(3) );
+				float[] stats_tmp = (float[]) tmp.getObject(3);
 				
 				// Add
 				vec_add(stats, stats_tmp);
@@ -297,7 +228,7 @@ public class Kmeans {
 					}
 				}
 			}	
-		
+	
 		// Add to return
 		receiver.add( array2DdeepCopy(centroids) );
 		}
@@ -326,8 +257,8 @@ public class Kmeans {
 	public static boolean kmeans_gradients_cpu_float(String table, String cols, int K, float batch_percent, float[] in_centroids, ResultSet receiver) throws SQLException {
 				
 		// Prepare statistics collection
-		float[] runstats = new float[2];
-		long tic_global = System.currentTimeMillis();
+		float[] runstats = new float[3];
+		long tic_global = System.nanoTime();
 		
 		// Prepare data ResultSet
 		db_object rs = prepare_db_data(table,cols,batch_percent);
@@ -344,20 +275,29 @@ public class Kmeans {
 		// Gradients
 		float[][] gradients = new float[K][Nc];
 			
+		float[] v = new float[Nc];
+	
 		// Main loop over data
-		while ( rs.R.next() ) {
+		boolean stop = false;
+		while ( !stop ) {
 			
-			// Build vec
-			long tic_io = System.currentTimeMillis();
+			long tic_io = System.nanoTime();
 			
-			float[] v = new float[Nc];
+			// Get next element
+			if(!rs.R.next()) {
+				stop = true;
+				break;
+			}
 			
+			// Build vec		
 			if(rs.array) {
 				// 1D array
-				Double[] A = (Double[]) rs.R.getObject(1); // <- To be changed after change in DB ! ( to Float )
-				
+				double[] A = (double[]) rs.R.getObject(1); // <- To be changed after change in DB ! ( to Float )
+						
 				for(int c = 0; c < Nc; c++) {
-					v[c] = A[c].floatValue();	
+					//v[c] = A[c].floatValue();
+					v[c] = (float) A[c];
+					
 				}
 			} else {
 				// True cols
@@ -365,10 +305,11 @@ public class Kmeans {
 					v[c-1] = rs.R.getFloat(c);
 				}
 			}
-			long toc_io = System.currentTimeMillis();
-			runstats[1] += toc_io-tic_io;
+			
+			runstats[1] += System.nanoTime() - tic_io;
 		
 			// Find min distance centroid
+			long tic_cpu = System.nanoTime();
 			int minc = 0;
 			float d = approx_euclidean_distance(v,centroids[0],centroids_L[0]);
 			for(int k = 1; k < K; k++) {
@@ -381,10 +322,12 @@ public class Kmeans {
 				}
 			}
 			
+			runstats[2] += System.nanoTime() - tic_cpu;
+			
 			ncount[minc]++;
 			
 			// Add to gradient
-			vec_add(gradients[minc],v);				
+			vec_add(gradients[minc],v);
 		}
 		
 		// Add centroid contributions
@@ -392,11 +335,11 @@ public class Kmeans {
 			vec_muladd(gradients[k],-ncount[k],centroids[k]);
 		}
 		
-		long toc_global = System.currentTimeMillis();
+		runstats[0] = (System.nanoTime() - tic_global)/1e6f;
+		runstats[1] /= 1e6f;
+		runstats[2] /= 1e6f;
 		
-		runstats[0] = toc_global-tic_global;
-		
-		receiver.updateObject(1, cast2DFloatArray(gradients));		
+		receiver.updateObject(1, gradients);				
 		receiver.updateObject(2, ncount);		
 		receiver.updateObject(3, runstats);
 		
@@ -472,9 +415,9 @@ public class Kmeans {
 	 */
 	public static boolean kmeans_gradients_tvm_float(String table, String cols, int Kin, float batch_percent, int tvm_batch_size, float[] in_centroids, ResultSet receiver) throws SQLException {
 		// Prepare stats
-		float[] runstats = new float[2];
+		float[] runstats = new float[3];
 		
-		long tic_global = System.currentTimeMillis();
+		long tic_global = System.nanoTime();
 			
 		// Prepare data ResultSet
 		db_object rs = prepare_db_data(table,cols,batch_percent);
@@ -525,7 +468,7 @@ public class Kmeans {
 		while(!stop) {
 			
 			// Build batch
-			long tic_io = System.currentTimeMillis();
+			long tic_io = System.nanoTime();
 			N[0] = 0;
 			for(int i = 0; i < tvm_batch_size; i++) {
 				// Stop if no more data
@@ -536,10 +479,10 @@ public class Kmeans {
 				// Set data
 				if(rs.array) {
 					// 1D array
-					Double[] A = (Double[]) rs.R.getObject(1); // <- To be changed after change in DB ! ( to Float )
+					double[] A = (double[]) rs.R.getObject(1); // <- To be changed after change in DB ! ( to Float )
 					
 					for(int c = 0; c < Nc[0]; c++) {
-						v_batch[i*Nc[0]+c] = A[c].floatValue();	
+						v_batch[i*Nc[0]+c] = (float) A[c];
 					}
 					
 				} else {
@@ -549,16 +492,18 @@ public class Kmeans {
 				}
 				N[0]++;
 			}
-			long toc_io = System.currentTimeMillis();
+			long toc_io = System.nanoTime();
 			runstats[1] += toc_io-tic_io;
 			
 			// Calc
 			if(N[0] > 0) {
-				
+				long tic_tvm = System.nanoTime();
 				// Calc all distances
 				gridworker.setGlobalWork(N[0], 1, 1);
 				
 	    	    executor_distance.withGridScheduler(gridScheduler).execute();
+	    	    
+	    	    runstats[2] += System.nanoTime() - tic_tvm;
 	    	    
 	    	    // Calc counts
 				for(int i = 0; i < N[0]; i++) {
@@ -575,11 +520,12 @@ public class Kmeans {
 		for(int k = 0; k < K[0]; k++) {
 			vec_muladd(gradients[k],-ncount[k],getRowFrom2Darray(in_centroids,k,Nc[0]));
 		}
+			
+		runstats[0] = (System.nanoTime() - tic_global)/1e6f;
+		runstats[1] /= 1e6f;
+		runstats[2] /= 1e6f;
 		
-		long toc_global = System.currentTimeMillis();
-		runstats[0] = toc_global-tic_global;
-		
-		receiver.updateObject(1, cast2DFloatArray(gradients));		
+		receiver.updateObject(1, gradients);
 		receiver.updateObject(2, ncount);		
 		receiver.updateObject(3, runstats);
 		
