@@ -49,7 +49,56 @@ public class Kmeans {
 	//private static String m_url = "jdbc:postgresql://localhost/pljava_new?socketFactory=org.newsclub.net.unix.AFUNIXSocketFactory$FactoryArg&socketFactoryArg=/tmp/.s.PGSQL.40004";
 	//private static String m_url = "jdbc:postgresql://localhost:40004/pljava_new";
 	
-	public static MoonshotReturn kmeans_test(String test) throws SQLException {
+	public static GradientReturn background_test() throws SQLException {
+		
+		Moonshot moonshot = new Moonshot();
+		try {
+			moonshot.execute("select attrs from lorenzo_v3 limit 100000;");
+			
+			
+			int c = 0;
+			double[] array;
+			
+			while(moonshot.fetch_next()) {
+				c++;
+				array = moonshot.getdoublearray(1);
+				//System.out.println(c+": "+moonshot.getdoublearray(1).length);
+			
+			}
+			/*
+			moonshot.execute("select attrs from lorenzo_v3 limit 5;");
+			
+			c = 0;
+			while(moonshot.fetch_next()) {
+				c++;
+				System.out.println(c+": "+moonshot.getdoublearray(1).length);
+			}
+			
+			double[] array;
+			do {
+				array = moonshot.fetch_next_double_array(1);
+				//ms = moonshot.fetch_next_double_ms();
+			}
+			while(array != null);
+			*/
+		} catch(Throwable t) {
+			System.out.println(t);
+		}
+		
+		
+		GradientReturn T =  new GradientReturn();
+		T.Test1 = new float[2][2];
+		T.Test2 = new int[3];
+		T.Test3 = new float[5];
+		T.Test2[0] = 4;
+		T.Test2[2] = 2;
+		
+		return T;
+	
+	}
+	
+	
+	public static GradientReturn kmeans_test(String test) throws SQLException {
 		
 		Moonshot moonshot = new Moonshot();
 		
@@ -64,7 +113,7 @@ public class Kmeans {
 			MemorySegment ms;
 			int c = 0;
 			do {
-				array = moonshot.fetch_next_double_array();
+				array = moonshot.fetch_next_double_array(1);
 				//ms = moonshot.fetch_next_double_ms();
 				c+=1;
 			}
@@ -81,7 +130,7 @@ public class Kmeans {
 			System.out.println(t);
 		}
 		
-		TestReturn T =  new TestReturn();
+		GradientReturn T =  new GradientReturn();
 		//T.Test1 = new float[3];
 		//T.Test2 = new float[5];
 		//T.Test3 = new float[2];
@@ -89,105 +138,29 @@ public class Kmeans {
 		return T;
 		
 		
-		/*
-		String s = "";
-		
-		for(int i = 0; i < array.length; i++) {
-			s += array[i]+" ";
-		}
-		
-		System.out.println(s);
-		*/
-		
-		/*
-		Linker linker = Linker.nativeLinker();		
-		
-		try (Arena arena = Arena.ofConfined()) {
-			//double[] resultArray = new double[3];
-            //MemorySegment resultArraySegment = MemorySegment.ofArray(resultArray);
-			
-			SequenceLayout L = MemoryLayout.sequenceLayout(3,JAVA_DOUBLE);
-	           
-			GroupLayout pointLayout = MemoryLayout.structLayout(
-					ADDRESS.withName("arr"),
-					JAVA_INT.withName("size")
-				);
-		
-			//VarHandle xvarHandle = pointLayout.varHandle(MemoryLayout.PathElement.groupElement("arr"));
-			VarHandle yvarHandle = pointLayout.varHandle(MemoryLayout.PathElement.groupElement("size"));
-	          
-			
-			SymbolLookup stdLib = SymbolLookup.libraryLookup("/data/moonshot/moonshot.so", arena);
-			MemorySegment strlen_addr = stdLib.find("fetch_data").get();
-			//FunctionDescriptor strlen_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(L),JAVA_INT);
-			//FunctionDescriptor strlen_sig = FunctionDescriptor.of(pointLayout,JAVA_INT);
-			FunctionDescriptor strlen_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(pointLayout),JAVA_INT);
-			
-			MethodHandle strlen = linker.downcallHandle(strlen_addr, strlen_sig);  
-		
-			//SegmentAllocator allocator = SegmentAllocator.slicingAllocator(Arena.ofAuto().allocate(100));
-			
-			System.out.println("Before invoke");
-			//MemorySegment len = (MemorySegment) strlen.invokeExact(allocator, 5);
-			MemorySegment len = (MemorySegment) strlen.invokeExact( 5);  
-			
-			//SegmentAllocator len = (SegmentAllocator) strlen.invokeExact( 5);  
-			//len.get(ADDRESS.withTargetLayout(pointLayout), 0);
-			System.out.println("After invoke");
-			
-			len = len.reinterpret(pointLayout.byteSize());
-			
-			VarHandle resultX    // (MemorySegment, long) -> int
-            = pointLayout.varHandle(MemoryLayout.PathElement.groupElement("size"));
-			VarHandle resultY    // (MemorySegment, long) -> int
-            = pointLayout.varHandle(MemoryLayout.PathElement.groupElement("arr"));
-			
-			int tbla = (int) resultX.get(len);
-			
-			MemorySegment Y = (MemorySegment) resultY.get(len);
-			
-			Y = Y.reinterpret(L.byteSize());
-			
-			double[] resultArray = Y.toArray(JAVA_DOUBLE);
-            
-			System.out.println("Test array: "+resultArray[0]+" "+resultArray[1]+" "+resultArray[2]);
-			System.out.println("TEST: "+tbla);
-			
-			System.out.println("END");
-		} catch(Throwable e) {
-			System.out.println(e);
-		}
-*/
 	}
 	
-	public static TestReturn kmeans_gradients_cpu_float_test(float batch_percent, float[] in_centroids) throws SQLException {
+	public static GradientReturn kmeans_gradients_cpu_float_test(String table, String cols, int K, float batch_percent, float[] in_centroids) throws SQLException {
 		
 		// Prepare statistics collection
 		float[] runstats = new float[3];
 		long tic_global = System.nanoTime();
 		
+		
 		// Prepare data ResultSet
-		Moonshot moonshot = new Moonshot();
-		try {
-			moonshot.connect();
-			
-			moonshot.execute("select attrs from lorenzo_v3 limit 100000");
-
-		} catch(Throwable t) {
-			System.out.println(t);
-			
-		}
+		db_object rs = prepare_db_data_moonshot(table,cols,batch_percent);
+		Moonshot moonshot = rs.M;
 		
 		long tic = System.nanoTime();
 		
-		int Nc = 79;
-		int K = 5;
+		//int Nc = 79;
+		//int K = 5;
 		
 		// # columns
-		//int Nc = rs.Nc;
-		
+		int Nc = rs.Nc;
 		// Unpack initial centroids;
-		float[][] centroids = float_1D_to_float_2D(in_centroids, K, Nc);
+		
+		float[][] centroids = float_1D_to_float_2D(in_centroids, K, Nc);	
 		float[] centroids_L = approx_eucld_centroid_length(centroids, K, Nc);
 		
 		// Cluster member count
@@ -196,59 +169,55 @@ public class Kmeans {
 		float[][] gradients = new float[K][Nc];
 			
 		float[] v = new float[Nc];
-		
 		// Main loop over data
-		boolean stop = false;
-		while ( !stop ) {
-			
-			long tic_io = System.nanoTime();
-			try {
-				double[] A = moonshot.fetch_next_double_array();// <- To be changed after change in DB ! ( to Float )
+		System.out.println("[DEBUG] Before moonshot");
+		
+		try {
+			while ( moonshot.fetch_next() ) {
+				
+				long tic_io = System.nanoTime();
+				double[] A = moonshot.getdoublearray(1);// <- To be changed after change in DB ! ( to Float )
 				
 				if(A == null) {	
-					stop = true;
+					System.out.println("[DEBUG]: NULL ARRAY!");
+					
 					break;
 				}
-			
-			
-			//PgArray A = (PgArray) rs.R.getObject(1); // <- To be changed after change in DB ! ( to Float )
-			//Double[] B = (Double[]) A.getArray();
-				
+					
 				for(int c = 0; c < Nc; c++) {
 					//v[c] = A[c].floatValue();
 					v[c] = (float) A[c];
-					//v[c] = B[c].floatValue();
+					//v[c] = B[c].floatValue();				
+				}
+				
+				runstats[1] += System.nanoTime() - tic_io;
+				
+				// Find min distance centroid
+				long tic_cpu = System.nanoTime();
+				int minc = 0;
+				float d = approx_euclidean_distance(v,centroids[0],centroids_L[0]);
+				for(int k = 1; k < K; k++) {
 					
+					float dist = approx_euclidean_distance(v,centroids[k],centroids_L[k]);
+					
+					if(dist < d) {
+						minc = k;
+						d = dist;
+					}
 				}
 				
-			} catch(Throwable t) {
-				System.out.println(t);
-				stop = true;
-				break;
-			}
-			runstats[1] += System.nanoTime() - tic_io;
-			
-			// Find min distance centroid
-			long tic_cpu = System.nanoTime();
-			int minc = 0;
-			float d = approx_euclidean_distance(v,centroids[0],centroids_L[0]);
-			for(int k = 1; k < K; k++) {
+				runstats[2] += System.nanoTime() - tic_cpu;
 				
-				float dist = approx_euclidean_distance(v,centroids[k],centroids_L[k]);
+				ncount[minc]++;
 				
-				if(dist < d) {
-					minc = k;
-					d = dist;
-				}
+				// Add to gradient
+				vec_add(gradients[minc],v);
 			}
 			
-			runstats[2] += System.nanoTime() - tic_cpu;
-			
-			ncount[minc]++;
-			
-			// Add to gradient
-			vec_add(gradients[minc],v);
+		} catch(Throwable t) {		
+			throw new SQLException(t);
 		}
+		
 		
 		// Add centroid contributions
 		for(int k = 0; k < K; k++) {
@@ -259,21 +228,24 @@ public class Kmeans {
 		runstats[1] /= 1e6f;
 		runstats[2] /= 1e6f;
 		
-		TestReturn T =  new TestReturn();
+		GradientReturn T =  new GradientReturn();
 		
 		T.Test1 = gradients;
 		T.Test2 = ncount;
 		T.Test3 = runstats;
 		
+		
 		try {
 			moonshot.disconnect();
 		} catch(Throwable t) {
-			System.out.println(t);
-			
+			throw new SQLException(t);
 		}
+		
+		
 		// Force GC
 		System.gc();
 		System.runFinalization();
+		System.out.println("[DEBUG] Java done!");
 		
 		return T;
 	}
@@ -378,6 +350,52 @@ public class Kmeans {
 		System.gc();
 		System.runFinalization();	
 	}
+	
+	private static db_object prepare_db_data_moonshot(String table, String cols, float batch_percent) throws SQLException {
+		 
+		// Init db connection
+		Moonshot moonshot = new Moonshot();
+		try {
+			moonshot.connect();
+			
+			// Detect # cols:
+			int Nc = cols.split(",").length;
+			
+			String query;
+			boolean array;
+			if (Nc > 1) {
+				// Query for individual columns
+				query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+");"; 
+				
+				array = false;
+			} else {
+				// Check if array length is encoded in cols:
+				String[] parts = cols.split(":");
+				if(parts.length < 2) {
+					// Query db for Nc
+					moonshot.execute("select ARRAY_LENGTH("+cols+",1) from "+table+" limit 1;");
+					moonshot.fetch_next();
+					Nc = moonshot.getint(1);
+				} else {
+					Nc = Integer.valueOf(parts[1]);
+				}
+				
+				// Query for 1D array
+				query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
+				//query = "select "+parts[0]+" from "+table+" LIMIT 1000000;"; 	
+				
+				array = true;
+			}
+			
+			moonshot.execute(query);
+			
+			return new db_object(moonshot,Nc,array);
+			
+		} catch(Throwable t) {
+			throw new SQLException(t);	
+		}
+	}
+	
 	
 	
 	private static db_object prepare_db_data(String table, String cols, float batch_percent) throws SQLException {
@@ -510,7 +528,9 @@ public class Kmeans {
 			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+","+tvm_batch_size+",";
 		}
 		else {
-			func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float";
+			//func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float";
+			func = "execute direct on ("+nodes+") $$select worker_test9";
+			
 			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+",";
 		}
 				
@@ -1167,6 +1187,29 @@ public class Kmeans {
 		s = s.substring(0, s.length()-1);
 		s+="}";
 		
+		return s;
+	}
+	
+	/**
+	 * Converts 1D matrix to postgres 1D array string
+	 * @param A : 1D matrix 
+	 * @return
+	 */
+	private static String getPGarrayFrom1Darray(float[] A) {
+		String s;
+		if(A.length != 0) {
+				
+			s = "{";
+			
+			for(int i = 0; i < A.length; i++) {
+					s+=A[i]+",";
+			}
+			
+			s = s.substring(0, s.length()-1);
+			s+="}";
+		} else {
+			s = "Null";
+		}
 		return s;
 	}
 	

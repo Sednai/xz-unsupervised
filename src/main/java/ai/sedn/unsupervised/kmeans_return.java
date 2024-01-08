@@ -26,31 +26,21 @@
 
 package ai.sedn.unsupervised;
 
-import java.sql.ResultSet;
-
 /**
 *
-* Helper-class to return ResultSet and number of columns together
+* TODO Short description
 * @author krefl
+* @version $Id$
 *
 */
-public class db_object {         
-    public ResultSet R;
-    public int Nc;
-    public boolean array;
-    public Moonshot M;
-    
-    public db_object(ResultSet R, int Nc,boolean array) {         
-        this.R = R;
-        this.Nc = Nc;
-        this.array = array;
-     }
 
-    public db_object(Moonshot MS, int Nc,boolean array) {         
-        this.M = MS;
-        this.Nc = Nc;
-        this.array = array;
-     }
-
+public class kmeans_return {
+	float[][] centroids;
+	float[] stats;
+	
+	public kmeans_return(float[][] cent, float[] stat) {
+		centroids = cent;
+		stats = stat;
+	}
 }
 

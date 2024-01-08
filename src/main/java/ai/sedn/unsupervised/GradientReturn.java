@@ -26,31 +26,19 @@
 
 package ai.sedn.unsupervised;
 
-import java.sql.ResultSet;
-
 /**
 *
-* Helper-class to return ResultSet and number of columns together
+* TODO Short description
 * @author krefl
+* @version $Id$
 *
 */
-public class db_object {         
-    public ResultSet R;
-    public int Nc;
-    public boolean array;
-    public Moonshot M;
-    
-    public db_object(ResultSet R, int Nc,boolean array) {         
-        this.R = R;
-        this.Nc = Nc;
-        this.array = array;
-     }
 
-    public db_object(Moonshot MS, int Nc,boolean array) {         
-        this.M = MS;
-        this.Nc = Nc;
-        this.array = array;
-     }
-
+public class GradientReturn extends MoonshotReturn {
+	
+	public float[][] Test1;
+	public int[] Test2;
+	public float[] Test3;
+	
 }
 
