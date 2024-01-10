@@ -1,7 +1,7 @@
 #include "postgres.h"
 #include "storage/latch.h"
 
-#define MAX_WORKERS 3
+#define MAX_WORKERS 2
 #define MAX_QUEUE_LENGTH 12
 
 typedef struct 
@@ -25,6 +25,7 @@ typedef struct
     dlist_head free_list;
     dlist_head return_list;
     int n_workers;
+    pid_t pid[MAX_WORKERS];
     Latch *latch[MAX_WORKERS];
     worker_exec_entry list_data[MAX_QUEUE_LENGTH];
 } worker_data_head;

@@ -133,9 +133,7 @@ worker_test(PG_FUNCTION_ARGS)
     SpinLockAcquire(&worker_head->lock);
     /*
         Lock acquired
-    */    
-    
-    // ToDo: Wait for free queue
+    */      
     if(!dlist_is_empty(&worker_head->free_list)) {
         dlist_node* dnode = dlist_pop_head_node(&worker_head->free_list);
         worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
@@ -325,24 +323,67 @@ Datum
 moonshot_show_queue(PG_FUNCTION_ARGS) {
     
     if(worker_head == NULL) {
-        elog(ERROR,"Can not reset queue if workers have not been initialized yet");
-    } else {
-
-        SpinLockAcquire(&worker_head->lock);
+        Oid			roleid = GetUserId();
+	    Oid			dbid = MyDatabaseId;
+	
+        char buf[12];
+        snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
-        int c = 0;
-        dlist_iter iter;
-        
-        dlist_foreach(iter, &worker_head->exec_list) {
-            c++;
+        bool found = false;
+        worker_head = ShmemInitStruct(buf,
+								   sizeof(worker_data_head),
+								   &found);
+        if(worker_head == NULL) {
+            elog(ERROR,"Can not reset workers if not started yet");
         }
-        
-        SpinLockRelease(&worker_head->lock);   
+    } 
 
-        PG_RETURN_INT32(c);
+    SpinLockAcquire(&worker_head->lock);
+    
+    int c = 0;
+    dlist_iter iter;
+    
+    dlist_foreach(iter, &worker_head->exec_list) {
+        c++;
     }
+    
+    SpinLockRelease(&worker_head->lock);   
+
+    PG_RETURN_INT32(c);
 }
 
+PG_FUNCTION_INFO_V1(moonshot_restart_workers);
+Datum
+moonshot_restart_workers(PG_FUNCTION_ARGS) {
+   
+    // Get global data structure
+    if(worker_head == NULL) {
+        Oid			roleid = GetUserId();
+	    Oid			dbid = MyDatabaseId;
+	
+        char buf[12];
+        snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
+        
+        bool found = false;
+        worker_head = ShmemInitStruct(buf,
+								   sizeof(worker_data_head),
+								   &found);
+        if(worker_head == NULL) {
+            elog(ERROR,"Can not reset workers if not started yet");
+        }
+    } 
+
+    SpinLockAcquire(&worker_head->lock);
+    
+    int c = 0;
+    elog(WARNING,"[DEBUG]: Terminating pid %d",worker_head->pid[0]);
+       
+    int r = kill(worker_head->pid[0], SIGTERM);
+    
+    SpinLockRelease(&worker_head->lock);   
+
+    PG_RETURN_INT32(r);
+}
 
 
 PG_FUNCTION_INFO_V1(kmeans);

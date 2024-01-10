@@ -29,7 +29,7 @@
 #include "math.h"
 
 bool got_signal = false;
-
+int worker_id;
 static worker_data_head *worker_head = NULL;
 
 worker_data_head*
@@ -112,22 +112,17 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		
 		Assert(status == BGWH_STARTED);
 
-		
-  		SpinLockAcquire(&worker_head->lock);
-		worker_head->n_workers++;
-		SpinLockRelease(&worker_head->lock);
-
-		elog(WARNING,"Moonshot worker %d of %d initialized with pid %d (from %d)",(n+1),n_workers,pid,MyProcPid);
+		elog(WARNING,"Moonshot worker %d of %d initialized with pid %d (from %d)",(n+1),(int) fmin(n_workers,MAX_WORKERS),pid,MyProcPid);
 	}
     
 	return worker_head;
 }
 
-static void
+void
 sigTermHandler(SIGNAL_ARGS)
 {
+    elog(WARNING,"Moonshot worker %d received sigterm",worker_id);
 	got_signal = true;
-    elog(WARNING,"Moonshot worker received sigterm");
 	SetLatch(MyLatch);
 }
 
@@ -135,7 +130,8 @@ void
 moonshot_worker_main(Datum main_arg)
 {
 	int			workerid = DatumGetInt32(main_arg);
-	
+	worker_id = workerid;
+
 	//StringInfoData buf;
 	char		name[20];
 	Oid			roleoid;
@@ -159,14 +155,34 @@ moonshot_worker_main(Datum main_arg)
 	worker_head = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
-	
+	if(!found) {
+		/* initialize worker data header */
+		memset(worker_head, 0, sizeof(worker_data_head));
+		dlist_init(&worker_head->exec_list);
+		dlist_init(&worker_head->free_list);
+		dlist_init(&worker_head->return_list);
+
+		// Init free list
+		for(int i = 0; i < MAX_QUEUE_LENGTH; i++) {
+			worker_head->list_data[i].taskid = i;
+			dlist_push_tail(&worker_head->free_list,&worker_head->list_data[i].node);
+		}
+		worker_head->n_workers = 0;
+
+	}
+	elog(WARNING,"[DEBUG]: BG worker %s init shared memory found: %d",buf,(int) found);
+
 	SpinLockAcquire(&worker_head->lock); 
 	worker_head->latch[workerid] = MyLatch;
+	// Set pid (due to potential restart)
+	worker_head->pid[workerid] = MyProcPid;
+	worker_head->n_workers++;
+
 	SpinLockRelease(&worker_head->lock);
 		
 	/* Establish signal handlers before unblocking signals. */
 	pqsignal(SIGTERM, sigTermHandler);
-
+	
 	/* We're now ready to receive signals */
 	BackgroundWorkerUnblockSignals();
 
