@@ -18,10 +18,14 @@ set pljava.nativearrays=on;
 ```
 (Should be set BEFORE pljava is first invocated, otherwise may take some time to propagate)
 
-CPU example for 5 centroids, 3 iterations and 50% of data sampled on each iteration and centroid history returned: 
+CPU example for data in double array, 5 centroids, 3 iterations and 50% of data sampled on each iteration and centroid history returned: 
 
 `select kmeans_plj('dr4_ops_cs48_tmp.lorenzo_v3','attrs',5,3,50.,False,0,True);`
 
-GPU example for 5 centroids, 3 iterations, 10000 gpu batch size and 50% of data sampled on each iteration, no centroid history returned: 
+GPU example for data in double array, 5 centroids, 3 iterations, 10000 gpu batch size and 50% of data sampled on each iteration, no centroid history returned: 
 
 `select kmeans_plj('dr4_ops_cs48_tmp.lorenzo_v3','attrs',5,3,50.,True,10000,False);`
+
+CPU example for data in float columns, 3 centroids, 10 iterations, 1% of data, last centroid return only:
+
+`select kmeans_plj('dr4_ops_cs48_tmp.testdata','d1,d2,d3',3,10,1.,False,30000,True);`
