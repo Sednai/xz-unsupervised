@@ -429,8 +429,8 @@ public class Kmeans {
 			}
 			
 			// Query for 1D array
-			//query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
-			query = "select "+parts[0]+" from "+table+" LIMIT 1000000;"; 	
+			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
+			//query = "select "+parts[0]+" from "+table+" LIMIT 1000000;"; 	
 			
 			array = true;
 		}
@@ -528,8 +528,8 @@ public class Kmeans {
 			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+","+tvm_batch_size+",";
 		}
 		else {
-			//func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float";
-			func = "execute direct on ("+nodes+") $$select worker_test9";
+			func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float";
+			//func = "execute direct on ("+nodes+") $$select worker_test9";
 			
 			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+",";
 		}
