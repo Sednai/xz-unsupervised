@@ -12,10 +12,32 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.source>17</maven.compiler.source>
-    <maven.compiler.target>17</maven.compiler.target>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
   </properties>
 
+<build>
+    <plugins>
+        <plugin>
+	    <groupId>org.apache.maven.plugins</groupId>
+	    <artifactId>maven-compiler-plugin</artifactId>
+	    <version>3.10.1</version>
+	    <configuration>
+	       <release>21</release>
+	        <enablePreview>true</enablePreview>
+	    </configuration>
+	</plugin>
+
+      </plugins>     
+</build>
+
+
+<repositories>
+    <repository>
+        <id>universityOfManchester-graal</id>
+        <url>https://raw.githubusercontent.com/beehive-lab/tornado/maven-tornadovm</url>
+    </repository>
+</repositories>
 
   <dependencies>
     <dependency>
@@ -29,12 +51,12 @@
     <artifactId>pljava-api</artifactId>
     <scope>system</scope>
     <version>1.7-SNAPSHOT</version>
-    <systemPath>/data/experimental/pljava/pljava-api/target/pljava-api-1.7-SNAPSHOT.jar</systemPath>
+    <systemPath>/ZNVME/xz4/app/share/postgresql/pljava/pljava-api-1.7-SNAPSHOT.jar</systemPath>
 	</dependency>
      <dependency>
     <groupId>tornado</groupId>
     <artifactId>tornado-api</artifactId>
-    <version>0.15.2</version>
+    <version>1.0</version>
 </dependency>
   </dependencies>
 </project>
