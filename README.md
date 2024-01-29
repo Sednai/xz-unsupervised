@@ -10,3 +10,18 @@ create function kmeans_plj(Text,Text,int,int,Float4,bool,int) returns setof Floa
 create function kmeans_gradients_tvm_float(Text,Text,int,Float4,int,Float4[]) returns  kmeans_grads as 'ai.sedn.unsupervised.Kmeans.kmeans_gradients_tvm_float' LANGUAGE java;
 create function kmeans_gradients_cpu_float(Text,Text,int,Float4,Float4[]) returns kmeans_grads as 'ai.sedn.unsupervised.Kmeans.kmeans_gradients_cpu_float' LANGUAGE java;
 ```
+## Usage under pljava
+
+Necessary to switch first to native arrays via
+```
+set pljava.nativearrays=on;
+```
+(Should be set BEFORE pljava is first invocated, otherwise may take some time to propagate)
+
+CPU example for 5 centroids, 3 iterations and 50% of data sampled on each iteration: 
+
+`select kmeans_plj('dr4_ops_cs48_tmp.lorenzo_v3','attrs',5,3,50.,False,0);`
+
+GPU example for 5 centroids, 3 iterations, 10000 gpu batch size and 50% of data sampled on each iteration: 
+
+`select kmeans_plj('dr4_ops_cs48_tmp.lorenzo_v3','attrs',5,3,50.,True,10000);`
