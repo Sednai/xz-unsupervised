@@ -429,8 +429,8 @@ public class Kmeans {
 			}
 			
 			// Query for 1D array
-			//query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
-			query = "select "+parts[0]+" from "+table+" LIMIT 1000000;"; 	
+			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
+			//query = "select "+parts[0]+" from "+table+" LIMIT 1000000;"; 	
 			
 			array = true;
 		}
@@ -455,10 +455,11 @@ public class Kmeans {
 	 * @param batch_percent : Percent of data to be considered for the batch
 	 * @param use_tvm : Use TornadoVM for gradient calculation
 	 * @param tvm_batch_size : Batch size for device
+	 * @param centroid_sequence : Return the sequence of centroids
 	 * @param return: Iterator over epoche centroids
 	 * @throws SQLException
 	 */
-	public static Iterator kmeans_control_float(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size) throws SQLException {
+	public static Iterator kmeans_control_float(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, boolean centroid_sequence) throws SQLException {
 		
 		// Init db connection
 		Connection conn = DriverManager.getConnection(m_url);
@@ -528,8 +529,8 @@ public class Kmeans {
 			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+","+tvm_batch_size+",";
 		}
 		else {
-			//func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float";
-			func = "execute direct on ("+nodes+") $$select worker_test9";
+			func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float";
+			//func = "execute direct on ("+nodes+") $$select worker_test9"; // <- for moonshot
 			
 			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+",";
 		}
@@ -599,10 +600,17 @@ public class Kmeans {
 				}
 			}	
 	
-		// Add to return
-		receiver.add( array2DdeepCopy(centroids) );
+			if(centroid_sequence) {
+				// Add to return
+				receiver.add( array2DdeepCopy(centroids) );
+			}
 		}
-	
+		
+		if(!centroid_sequence) {
+			// Add to return
+			receiver.add( array2DdeepCopy(centroids) );
+		}
+		
 		// Force GC
 		System.gc();
 		System.runFinalization();

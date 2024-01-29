@@ -142,7 +142,7 @@ public class Moonshot {
 		int ret = (int) lib_execute.invokeExact(cString);
 		
 		if(ret != 0) {
-			throw new SQLException("Execution failed."); 
+			throw new SQLException("Execution failed! ("+query+")"); 
 		}
 	}
 	
