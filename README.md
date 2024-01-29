@@ -26,6 +26,6 @@ GPU example for data in double array, 5 centroids, 3 iterations, 10000 gpu batch
 
 `select kmeans_plj('dr4_ops_cs48_tmp.lorenzo_v3','attrs',5,3,50.,True,10000,False);`
 
-CPU example for data in float columns, 3 centroids, 10 iterations, 1% of data, last centroid return only:
+CPU example for data in float columns, 3 centroids, 10 iterations, 1% of data, centroid history returned:
 
 `select kmeans_plj('dr4_ops_cs48_tmp.testdata','d1,d2,d3',3,10,1.,False,30000,True);`
