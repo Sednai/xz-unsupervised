@@ -330,7 +330,7 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
         //char* method_name = "background_test";
         //char* signature = "()Lai/sedn/unsupervised/GradientReturn;";
         char* method_name = "kmeans_gradients_tvm_float_ms";
-        char* signature = "(Ljava/lang/String;Ljava/lang/String;IF[F)Lai/sedn/unsupervised/GradientReturn;";
+        char* signature = "(Ljava/lang/String;Ljava/lang/String;IFI[F)Lai/sedn/unsupervised/GradientReturn;";
 
         strncpy(entry->class_name, class_name, strlen(class_name));
         strncpy(entry->method_name, method_name, strlen(method_name));
@@ -339,7 +339,7 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
         entry->notify_latch = MyLatch;
         
         // Serialize args
-        entry->n_args = 5;
+        entry->n_args = 6;
         //entry->n_args = 0;
 
         char* pos = entry->data;
@@ -386,7 +386,7 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
         
         elog(WARNING,"entry->data: after I head %d",(int) pos);
 
-        datumSerialize(PG_GETARG_DATUM(4), false, false, -1, &pos);
+        datumSerialize(PG_GETARG_DATUM(4), false, true, -1, &pos);
        
         elog(WARNING,"entry->data: before [F %d",(int) pos);
 

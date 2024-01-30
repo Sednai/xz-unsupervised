@@ -263,7 +263,7 @@ moonshot_worker_main(Datum main_arg)
 
 			char* T = pos;
 		 	pos += strlen(T)+1;
-			elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
+			elog(WARNING,"ARGS(%d): %d. T: %s, pos: %d",entry->n_args,i,T,(int) pos);
 
 			bool isnull;
 			Datum arg = datumDeSerialize(&pos, &isnull);

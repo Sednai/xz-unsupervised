@@ -179,7 +179,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
 
     if(clazz == NULL) {
         return -1;
-        //elog(ERROR,"Java class %s not found !",class_name);
+        //elog(WARNING,"Java class %s not found !",class_name);
     }
 
     jmethodID methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
@@ -322,7 +322,7 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     options[1].optionString = "-XX:-UseCompressedOops"; 
     options[2].optionString = "-XX:+UnlockExperimentalVMOptions";
     options[3].optionString = "-XX:+EnableJVMCI"; 
-    options[4].optionString = "--module-path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/tornado/";
+    options[4].optionString = "--module-path=.:/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/tornado";
     options[5].optionString = "-Djava.library.path=/data/TornadoVM/bin/sdk/lib";
     options[6].optionString = "-Dtornado.load.api.implementation=uk.ac.manchester.tornado.runtime.tasks.TornadoTaskGraph";
     options[7].optionString = "-Dtornado.load.runtime.implementation=uk.ac.manchester.tornado.runtime.TornadoCoreRuntime";
@@ -333,9 +333,9 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     options[12].optionString = "-Dtornado.load.annotation.implementation=uk.ac.manchester.tornado.annotation.ASMClassVisitor"; 
     options[13].optionString = "-Dtornado.load.annotation.parallel=uk.ac.manchester.tornado.api.annotations.Parallel";
     options[14].optionString = "--upgrade-module-path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/graalJars";
-    options[15].optionString = "--upgrade-module-path=/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
+    options[15].optionString = "-Xmx5G";
     options[16].optionString = "-XX:+UseParallelGC";
-    options[17].optionString = "-Dtornado.profiler=True";
+    options[17].optionString = "-Dtornado.profiler=False";
     options[18].optionString = "--add-modules=ALL-SYSTEM,tornado.runtime,tornado.annotation,tornado.drivers.common,tornado.drivers.opencl,unsupervised";
     options[19].optionString = "--enable-preview";
     options[20].optionString = "--enable-native-access=unsupervised";
