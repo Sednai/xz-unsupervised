@@ -377,8 +377,7 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
 
         datumSerialize(PG_GETARG_DATUM(3), false, true, -1, &pos);
        
-        elog(WARNING,"entry->data: before [F %d",(int) pos);
-
+        
 
         elog(WARNING,"entry->data: before I %d",(int) pos);
 
@@ -387,8 +386,9 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
         
         elog(WARNING,"entry->data: after I head %d",(int) pos);
 
-        datumSerialize(PG_GETARG_DATUM(4), false, true, -1, &pos);
-
+        datumSerialize(PG_GETARG_DATUM(4), false, false, -1, &pos);
+       
+        elog(WARNING,"entry->data: before [F %d",(int) pos);
 
         strncpy(pos, "[F", strlen("[F")+1);
         pos+=strlen("[F")+1;
