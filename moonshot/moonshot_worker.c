@@ -28,6 +28,8 @@
 #include "utils/snapmgr.h"
 #include "math.h"
 
+#define WORKER_LIB "/ZNVME/xz4/app/misc/xz-unsupervised/moonshot/moonshot.so"
+
 bool got_signal = false;
 int worker_id;
 static worker_data_head *worker_head = NULL;
@@ -83,7 +85,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		}
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
 		worker.bgw_restart_time = 10; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
-		sprintf(worker.bgw_library_name, "/data/moonshot/moonshot.so");
+		sprintf(worker.bgw_library_name, WORKER_LIB);
 		sprintf(worker.bgw_function_name, "moonshot_worker_main");
 		
 		snprintf(worker.bgw_name, BGW_MAXLEN, "%s_%d",buf,(n+1));
