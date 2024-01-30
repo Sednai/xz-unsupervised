@@ -140,7 +140,7 @@ kmeans_gradients_cpu_float(PG_FUNCTION_ARGS)
         char* class_name = "ai/sedn/unsupervised/Kmeans";
         //char* method_name = "background_test";
         //char* signature = "()Lai/sedn/unsupervised/GradientReturn;";
-        char* method_name = "kmeans_gradients_cpu_float_test";
+        char* method_name = "kmeans_gradients_cpu_float_ms";
         char* signature = "(Ljava/lang/String;Ljava/lang/String;IF[F)Lai/sedn/unsupervised/GradientReturn;";
 
         strncpy(entry->class_name, class_name, strlen(class_name));

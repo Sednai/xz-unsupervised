@@ -82,7 +82,7 @@ public class Moonshot {
 		
 		arena = Arena.ofConfined();
 		
-		SymbolLookup lib = SymbolLookup.libraryLookup("/data/moonshot/moonshot.so", arena);
+		SymbolLookup lib = SymbolLookup.libraryLookup("/ZNVME/xz4/app/misc/xz-unsupervised/moonshot/moonshot.so", arena);
 	
 		MemorySegment lib_connect_addr = lib.find("connect_SPI").get();
 		FunctionDescriptor lib_connect_sig = FunctionDescriptor.of(JAVA_INT);
