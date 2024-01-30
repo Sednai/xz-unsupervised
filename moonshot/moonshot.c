@@ -387,7 +387,7 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
         
         elog(WARNING,"entry->data: after I head %d",(int) pos);
 
-        datumSerialize(PG_GETARG_DATUM(3), false, true, -1, &pos);
+        datumSerialize(PG_GETARG_DATUM(4), false, true, -1, &pos);
 
 
         strncpy(pos, "[F", strlen("[F")+1);
