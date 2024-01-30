@@ -10,7 +10,7 @@
 
 //#define JVM_SO_FILE "/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so"
 
-#define JVM_SO_FILE "/ZNVME/xz4/app/misc/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so"
+#define JVM_SO_FILE "/ZNVME/xz4/app/misc/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.2/lib/server/libjvm.so"
 
 JNIEnv *jenv;
 JavaVM *jvm;
