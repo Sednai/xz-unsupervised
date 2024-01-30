@@ -251,6 +251,142 @@ public class Kmeans {
 	}
 
 	
+	public static GradientReturn kmeans_gradients_tvm_float_ms(String table, String cols, int Kin, float batch_percent, int tvm_batch_size, float[] in_centroids) throws SQLException {
+		// Prepare stats
+		float[] runstats = new float[3];
+		
+		long tic_global = System.nanoTime();
+			
+		// Prepare data ResultSet
+		db_object rs = prepare_db_data_moonshot(table,cols,batch_percent);
+		Moonshot moonshot = rs.M;
+			
+		// Vars for Tornado
+		int[] Nc = new int[1];
+		Nc[0] = rs.Nc;
+		
+		int[] N = new int[1];
+		float[] centroids = new float[Kin*Nc[0]];
+		System.arraycopy(in_centroids, 0, centroids, 0, in_centroids.length);
+		
+		int[] ccentroid = new int[tvm_batch_size];
+		float[] v_batch = new float[tvm_batch_size*Nc[0]];
+		float[] d = new float[tvm_batch_size*Kin];
+		int[] K = new int[1];
+		K[0] = Kin;
+			
+		// Centroids length
+		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
+				
+		
+		// Init Tornado
+		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
+		
+		GridScheduler gridScheduler = new GridScheduler();
+		
+		KernelContext context = new KernelContext();    
+		TaskGraph taskGraph = new TaskGraph("s0")
+				.transferToDevice(DataTransferMode.FIRST_EXECUTION, centroids, ccentroid, d, Nc, K, centroids_L)       	
+				.transferToDevice(DataTransferMode.EVERY_EXECUTION, v_batch, N)
+	        	.task("t0", Kmeans::approx_euclidean_distance_tvm_kernel, context,  v_batch, centroids, N, d, Nc, K, centroids_L)
+	        	.task("t1", Kmeans::search_min_distance_tvm_kernel, context, d, N, ccentroid, K)
+	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
+		
+		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
+		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
+		
+		gridScheduler.setWorkerGrid("s0.t0", gridworker);
+		gridScheduler.setWorkerGrid("s0.t1", gridworker);
+		
+		// Init return vars
+		int[] ncount = new int[K[0]];
+		float[][] gradients = new float[K[0]][Nc[0]];
+		
+		// Do batching
+		boolean stop = false;
+		try {
+			while(!stop) {
+				
+				// Build batch
+				long tic_io = System.nanoTime();
+				N[0] = 0;
+				for(int i = 0; i < tvm_batch_size; i++) {
+					
+					if(!moonshot.fetch_next()) {
+						stop = true;
+						break;
+					}	
+					double[] A = moonshot.getdoublearray(1);// <- To be changed after change in DB ! ( to Float )
+					
+					if(A == null) {	
+						System.out.println("[DEBUG]: NULL ARRAY!");
+						
+						break;
+					}
+						
+					for(int c = 0; c < Nc[0]; c++) {
+						v_batch[i*Nc[0]+c] = (float) A[c];
+					}
+			
+					N[0]++;
+				}
+				long toc_io = System.nanoTime();
+				runstats[1] += toc_io-tic_io;
+				
+				// Calc
+				if(N[0] > 0) {
+					long tic_tvm = System.nanoTime();
+					// Calc all distances
+					gridworker.setGlobalWork(N[0], 1, 1);
+					
+		    	    executor_distance.withGridScheduler(gridScheduler).execute();
+		    	    
+		    	    runstats[2] += System.nanoTime() - tic_tvm;
+		    	    
+		    	    // Calc counts
+					for(int i = 0; i < N[0]; i++) {
+						
+						ncount[ ccentroid[i] ]++;
+						
+						// Add to gradient
+						vec_add(gradients[ ccentroid[i] ], getRowFrom2Darray(v_batch,i,Nc[0]));	
+					}
+				}	
+			}
+			
+		} catch(Throwable t) {		
+			throw new SQLException(t);
+		}
+		
+		// Add centroid contributions
+		for(int k = 0; k < K[0]; k++) {
+			vec_muladd(gradients[k],-ncount[k],getRowFrom2Darray(in_centroids,k,Nc[0]));
+		}
+			
+		runstats[0] = (System.nanoTime() - tic_global)/1e6f;
+		runstats[1] /= 1e6f;
+		runstats[2] /= 1e6f;
+		
+		executor_distance.freeDeviceMemory();
+		
+		GradientReturn T =  new GradientReturn();
+		
+		T.Test1 = gradients;
+		T.Test2 = ncount;
+		T.Test3 = runstats;
+	
+		try {
+			moonshot.disconnect();
+		} catch(Throwable t) {
+			throw new SQLException(t);
+		}
+	
+		// Force GC
+		System.gc();
+		System.runFinalization();
+				
+		return T;
+	}
 	
 	
 	
