@@ -140,7 +140,7 @@ public class Kmeans {
 		
 	}
 	
-	public static GradientReturn kmeans_gradients_cpu_float_test(String table, String cols, int K, float batch_percent, float[] in_centroids) throws SQLException {
+	public static GradientReturn kmeans_gradients_cpu_float_ms(String table, String cols, int K, float batch_percent, float[] in_centroids) throws SQLException {
 		
 		// Prepare statistics collection
 		float[] runstats = new float[3];
@@ -617,6 +617,167 @@ public class Kmeans {
 		
 		return receiver.iterator();		
 	}
+	
+	
+public static Iterator kmeans_control_float_ms(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, boolean centroid_sequence) throws SQLException {
+		
+		// Init db connection
+		Connection conn = DriverManager.getConnection(m_url);
+				
+		// Obtain datanode information
+		String query = "select string_agg(node_name,',') from pgxc_node where node_type='D';";
+		
+		Statement stmt = conn.createStatement();
+		ResultSet rs = stmt.executeQuery(query);	
+		rs.next();
+		
+		String nodes = rs.getString(1);
+		int Nn = nodes.split(",").length;
+			
+		// Query for Nc
+		int Nc = cols.split(",").length;
+		String[] parts = cols.split(":");
+		boolean array = false;
+		if(Nc < 2) {
+			array = true;
+			// Check if array length is encoded in cols:
+			if(parts.length < 2) {
+				// Query db for Nc
+				stmt = conn.createStatement();
+				rs = stmt.executeQuery("select ARRAY_LENGTH("+cols+",1) from "+table+" limit 1;");	
+				rs.next();
+				Nc = rs.getInt(1);
+				
+			} else {
+				Nc = Integer.valueOf(parts[1]);
+			}		
+		}
+			
+		// Query for random datapoints as initial centroids (globally selected)
+		float[][] centroids = new float[K][Nc];
+		
+		if(!array) {
+			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(0.25) limit "+K;
+		} else {
+			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM(0.25) where cardinality("+parts[0]+")!=0 limit "+K;
+		}
+		
+		stmt = conn.createStatement();
+		rs = stmt.executeQuery(query);	
+		
+		for(int i = 0; i < K; i++) {
+			rs.next();
+			
+			if(!array) {
+				for(int c = 1; c < Nc; c++) {
+					centroids[i][c-1] = rs.getFloat(c);
+				}
+			} else {
+				double[] A = (double[]) rs.getObject(1); // <- To be changed after change in DB ! ( to Float )
+				
+				for(int c = 0; c < Nc; c++) {
+					centroids[i][c] = (float) A[c];
+				}
+			}
+
+		}
+			
+		// Set function
+		String func;
+		if(use_tvm) {
+			func = "execute direct on ("+nodes+") $$select kmeans_gradients_tvm_float_ms";
+			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+","+tvm_batch_size+",";
+		}
+		else {
+			func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float_ms";
+			
+			func += "('"+table+"','"+cols+"',"+K+","+batch_percent+",";
+		}
+				
+		float[][][] partialGradients = new float[Nn][K][Nc];
+		int[][] Ccounts = new int[Nn][K];
+			
+		ArrayList<float[][]> receiver = new ArrayList<>();
+		
+		// Main loop
+		for(int i = 0; i < I; i++) {
+			// Reset
+			int[] counts = new int[K];
+			float[][] gradients = new float[K][Nc];
+		
+			// Set query
+			query = func + "'"+getPGarrayFrom2Darray(centroids)+"')$$;";
+			
+			// Execute
+			stmt = conn.createStatement();
+			rs = stmt.executeQuery(query);
+			
+			// Collect
+			int c = 0;
+			float[] stats = new float[1];
+			
+			while(rs.next()) { 
+				
+				ResultSet tmp = (ResultSet) rs.getObject(1);
+				// 1. Gradients as 1D Float array <- Autoconvert from plJava. Fix for new versions
+				partialGradients[c] = (float[][]) tmp.getObject(1);
+				
+				// 2. Counts as 1D Int array
+				Ccounts[c] = (int[]) tmp.getObject(2);
+						
+				// 3. Collect statistics
+				float[] stats_tmp = (float[]) tmp.getObject(3);
+				
+				// Add
+				vec_add(stats, stats_tmp);
+				
+				c++;			
+			}
+		
+			vec_mul(stats,(float) 1./c);
+			
+			// Calc new centroids
+			for(int n = 0; n < Nn; n++) {
+				for(int k = 0; k < K; k++) {
+					if(Ccounts[n][k] > 0) {
+						// Add counts
+						counts[k] += Ccounts[n][k];
+						// Add partial gradients
+						for(int j = 0; j < Nc; j++) {
+							gradients[k][j] += partialGradients[n][k][j];
+						}
+					}
+				}
+			}
+				
+			// Add
+			for(int k=0; k < K; k++) {
+				if(counts[k] > 0) {
+					for(int j = 0; j < Nc; j++) {
+						centroids[k][j] += 1./counts[k]*gradients[k][j];
+					}
+				}
+			}	
+	
+			if(centroid_sequence) {
+				// Add to return
+				receiver.add( array2DdeepCopy(centroids) );
+			}
+		}
+		
+		if(!centroid_sequence) {
+			// Add to return
+			receiver.add( array2DdeepCopy(centroids) );
+		}
+		
+		// Force GC
+		System.gc();
+		System.runFinalization();
+		
+		return receiver.iterator();		
+	}
+
+	
 	
 	/**
 	 * CPU based calculation of kmeans stochastic gradients

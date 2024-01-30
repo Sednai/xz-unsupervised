@@ -47,13 +47,12 @@ PG_MODULE_MAGIC;
 /* 
     SPI
 */
+/*
+DEPRECATED
+
 double_array_data* fetch_data() {
     
 
-/*
-    int ret = SPI_execute("select attrs from lorenzo_v3 tablesample system(50)", true, 0);
-    int proc = SPI_processed;
-*/
     SPI_connect();
     SPIPlanPtr plan = SPI_prepare_cursor("select attrs from lorenzo_v3 limit 100000", 0, NULL, 0);
     
@@ -107,11 +106,11 @@ double_array_data* fetch_data() {
     
     return A;
 }
+*/
 
-
-PG_FUNCTION_INFO_V1(worker_test);
+PG_FUNCTION_INFO_V1(kmeans_gradients_cpu_float);
 Datum
-worker_test(PG_FUNCTION_ARGS) 
+kmeans_gradients_cpu_float(PG_FUNCTION_ARGS) 
 {
     if(worker_head == NULL) {
         worker_head = launch_dynamic_workers(8, true, false);
@@ -137,7 +136,7 @@ worker_test(PG_FUNCTION_ARGS)
     if(!dlist_is_empty(&worker_head->free_list)) {
         dlist_node* dnode = dlist_pop_head_node(&worker_head->free_list);
         worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
-    
+
         char* class_name = "ai/sedn/unsupervised/Kmeans";
         //char* method_name = "background_test";
         //char* signature = "()Lai/sedn/unsupervised/GradientReturn;";
@@ -334,7 +333,7 @@ moonshot_show_queue(PG_FUNCTION_ARGS) {
 								   sizeof(worker_data_head),
 								   &found);
         if(worker_head == NULL) {
-            elog(ERROR,"Can not reset workers if not started yet");
+            elog(ERROR,"Can not show queues if workers not started yet");
         }
     } 
 
@@ -369,7 +368,7 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
 								   sizeof(worker_data_head),
 								   &found);
         if(worker_head == NULL) {
-            elog(ERROR,"Can not reset workers if not started yet");
+            elog(ERROR,"Can not restart workers if not started yet");
         }
     } 
 
@@ -385,6 +384,9 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
     PG_RETURN_INT32(r);
 }
 
+
+/*
+DEPRECATED
 
 PG_FUNCTION_INFO_V1(kmeans);
 
@@ -444,5 +446,5 @@ kmeans(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
 }
 
-
+*/
 

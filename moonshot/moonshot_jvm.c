@@ -8,6 +8,10 @@
 #include <dlfcn.h>
 #include "moonshot_jvm.h"
 
+//#define JVM_SO_FILE "/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so"
+
+#define JVM_SO_FILE "/ZNVME/xz4/app/misc/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so"
+
 JNIEnv *jenv;
 JavaVM *jvm;
  
@@ -299,6 +303,55 @@ char** readOptions(char* filename, int* N) {
     return lines;
 }
 
+/* 
+    xz4 
+*/
+JavaVMOption* setJVMoptions(int* numOptions) {
+    
+    // Read @ options
+    int N1;
+    char **lines1 =  readOptions("/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/etc/exportLists/common-exports",&N1);
+
+    int N2;
+    char **lines2 =  readOptions("/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/etc/exportLists/opencl-exports",&N2);
+    
+    *numOptions = N1+N2+21;
+    JavaVMOption* options = malloc( (*numOptions)*sizeof(JavaVMOption));
+    
+    options[0].optionString = "-Djava.class.path=/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
+    options[1].optionString = "-XX:-UseCompressedOops"; 
+    options[2].optionString = "-XX:+UnlockExperimentalVMOptions";
+    options[3].optionString = "-XX:+EnableJVMCI"; 
+    options[4].optionString = "--module-path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/tornado/";
+    options[5].optionString = "-Djava.library.path=/data/TornadoVM/bin/sdk/lib";
+    options[6].optionString = "-Dtornado.load.api.implementation=uk.ac.manchester.tornado.runtime.tasks.TornadoTaskGraph";
+    options[7].optionString = "-Dtornado.load.runtime.implementation=uk.ac.manchester.tornado.runtime.TornadoCoreRuntime";
+    options[8].optionString = "-Dtornado.load.tornado.implementation=uk.ac.manchester.tornado.runtime.common.Tornado";
+    options[9].optionString = "-Dtornado.load.device.implementation.opencl=uk.ac.manchester.tornado.drivers.opencl.runtime.OCLDeviceFactory";
+    options[10].optionString = "-Dtornado.load.device.implementation.ptx=uk.ac.manchester.tornado.drivers.ptx.runtime.PTXDeviceFactory";
+    options[11].optionString = "-Dtornado.load.device.implementation.spirv=uk.ac.manchester.tornado.drivers.spirv.runtime.SPIRVDeviceFactory";
+    options[12].optionString = "-Dtornado.load.annotation.implementation=uk.ac.manchester.tornado.annotation.ASMClassVisitor"; 
+    options[13].optionString = "-Dtornado.load.annotation.parallel=uk.ac.manchester.tornado.api.annotations.Parallel";
+    options[14].optionString = "--upgrade-module-path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/graalJars";
+    options[15].optionString = "--upgrade-module-path=/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
+    options[16].optionString = "-XX:+UseParallelGC";
+    options[17].optionString = "-Dtornado.profiler=True";
+    options[18].optionString = "--add-modules=ALL-SYSTEM,tornado.runtime,tornado.annotation,tornado.drivers.common,tornado.drivers.opencl,unsupervised";
+    options[19].optionString = "--enable-preview";
+    options[20].optionString = "--enable-native-access=unsupervised";
+
+    for(int i=0; i < N1; i++) {
+        options[21+i].optionString = lines1[i];
+    }
+
+    for(int i=0; i < N2; i++) {
+        options[21+N1+i].optionString = lines2[i];
+    }
+ 
+    return options;
+} 
+
+/*
 JavaVMOption* setJVMoptions(int* numOptions) {
     
     // Read @ options
@@ -311,12 +364,10 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     *numOptions = N1+N2+21;
     JavaVMOption* options = malloc( (*numOptions)*sizeof(JavaVMOption));
     
-    //options[0].optionString = "-Djava.class.path=/data/TornadoVM/tornado-examples/target/tornado-examples-0.15.2-dev-d9c095d.jar";
     options[0].optionString = "-Djava.class.path=/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
     options[1].optionString = "-XX:-UseCompressedOops"; 
     options[2].optionString = "-XX:+UnlockExperimentalVMOptions";
     options[3].optionString = "-XX:+EnableJVMCI"; 
-    //options[4].optionString = "--module-path=/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/data/TornadoVM/bin/sdk/share/java/tornado/asm-9.5.jar:/data/TornadoVM/bin/sdk/share/java/tornado/commons-lang3-3.12.0.jar:/data/TornadoVM/bin/sdk/share/java/tornado/ejml-core-0.38.jar:/data/TornadoVM/bin/sdk/share/java/tornado/ejml-ddense-0.38.jar:/data/TornadoVM/bin/sdk/share/java/tornado/ejml-dsparse-0.38.jar:/data/TornadoVM/bin/sdk/share/java/tornado/ejml-simple-0.38.jar:/data/TornadoVM/bin/sdk/share/java/tornado/hamcrest-core-1.3.jar:/data/TornadoVM/bin/sdk/share/java/tornado/jmh-core-1.29.jar:/data/TornadoVM/bin/sdk/share/java/tornado/jopt-simple-4.6.jar:/data/TornadoVM/bin/sdk/share/java/tornado/jsr305-3.0.2.jar:/data/TornadoVM/bin/sdk/share/java/tornado/junit-4.13.2.jar:/data/TornadoVM/bin/sdk/share/java/tornado/log4j-api-2.17.1.jar:/data/TornadoVM/bin/sdk/share/java/tornado/log4j-core-2.17.1.jar:/data/TornadoVM/bin/sdk/share/java/tornado/lucene-core-8.2.0.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-annotation-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-api-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-benchmarks-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-drivers-common-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-drivers-opencl-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-drivers-opencl-jni-0.16-dev-libs.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-examples-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-matrices-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-runtime-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/tornado/tornado-unittests-0.16-dev.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/collections-23.1.0.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/compiler-23.1.0.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/compiler-management-23.1.0.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/graal-sdk-23.1.0.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/polyglot-23.1.0.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/truffle-api-23.1.0.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/truffle-compiler-23.1.0.jar:/data/TornadoVM/bin/sdk/share/java/graalJars/word-23.1.0.jar";
     options[4].optionString = "--module-path=/data/TornadoVM/bin/sdk/share/java/tornado/";
     options[5].optionString = "-Djava.library.path=/data/TornadoVM/bin/sdk/lib";
     options[6].optionString = "-Dtornado.load.api.implementation=uk.ac.manchester.tornado.runtime.tasks.TornadoTaskGraph";
@@ -345,7 +396,7 @@ JavaVMOption* setJVMoptions(int* numOptions) {
  
     return options;
 } 
-
+*/
 
 int startJVM() {
 
@@ -362,7 +413,7 @@ int startJVM() {
     vm_args.ignoreUnrecognized = JNI_FALSE;
 
 
-    void *jvmLibrary = dlopen("/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so", RTLD_NOW | RTLD_GLOBAL);
+    void *jvmLibrary = dlopen(JVM_SO_FILE, RTLD_NOW | RTLD_GLOBAL);
 
     JNI_CreateJavaVM_func JNI_CreateJavaVM = (JNI_CreateJavaVM_func) dlsym(jvmLibrary, "JNI_CreateJavaVM");
 
