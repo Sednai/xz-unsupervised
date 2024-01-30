@@ -1,6 +1,6 @@
 # xz-unsupervised - branch active on gaiadbgpu
 
-## postgres install for pljava 
+## postgres install of pljava 
 ```
 select sqlj.install_jar('file:///ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar','unsupervised', true);
 select sqlj.set_classpath('public','unsupervised');
@@ -29,3 +29,24 @@ GPU example for data in double array, 5 centroids, 3 iterations, 10000 gpu batch
 CPU example for data in float columns, 3 centroids, 10 iterations, 1% of data, centroid history returned:
 
 `select kmeans_plj('dr4_ops_cs48_tmp.testdata','d1,d2,d3',3,10,1.,False,30000,True);`
+
+## postgres install of moonshot
+```
+CREATE FUNCTION ms_restart_workers() RETURNS int
+     AS '/ZNVME/xz4/app/misc/xz-unsupervised/moonshot/moonshot.so', 'moonshot_restart_workers'
+     LANGUAGE C;
+
+CREATE FUNCTION ms_show_exec_queue() RETURNS int
+     AS '/ZNVME/xz4/app/misc/xz-unsupervised/moonshot/moonshot.so', 'moonshot_show_queue'
+     LANGUAGE C;
+
+CREATE FUNCTION ms_clear_exec_queue() RETURNS int
+     AS '/ZNVME/xz4/app/misc/xz-unsupervised/moonshot/moonshot.so', 'moonshot_clear_queue'
+     LANGUAGE C;
+
+CREATE FUNCTION kmeans_gradients_cpu_float_ms(Text,Text,int,Float4,Float4[]) returns  kmeans_grads as '/ZNVME/xz4/app/misc/xz-unsupervised/moonshot/moonshot.so','kmeans_gradients_cpu_float' LANGUAGE C;
+
+CREATE FUNCTION kmeans_ms(Text,Text,int,int,Float4,bool,int,bool) returns setof Float4[][] as 'ai.sedn.unsupervised.Kmeans.kmeans_control_float_ms' LANGUAGE java;
+```
+## Usage under moonshot
+As for pljava (in particular `set pljava.nativearrays=on`), but `kmeans_ms`. 
