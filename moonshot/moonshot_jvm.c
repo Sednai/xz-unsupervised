@@ -170,33 +170,29 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
 // ToDo: Iterator / setof multi-row return
 int call_java_function(Datum* values, bool* primitive, char* class_name, char* method_name, char* signature, jvalue* args) {
 
-    elog(WARNING,"[DEBUG] ENTRY!: %s->%s",class_name,method_name);
 
     // Prep and call function
     jclass clazz = (*jenv)->FindClass(jenv, class_name);
 
-    elog(WARNING,"[DEBUG] OK!");
-
     if(clazz == NULL) {
-        return -1;
-        //elog(WARNING,"Java class %s not found !",class_name);
+	elog(WARNING,"Java class %s not found !",class_name);    
+	return -1;
     }
 
     jmethodID methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
 
     if(methodID == NULL) {
-        return -2;
-        //elog(ERROR,"Java method %s with signature %s not found !",method_name, signature);
+	elog(WARNING,"Java method %s with signature %s not found !",method_name, signature);        
+	return -2;
     }
     
-
     //va_list args;
 	//va_start(args, signature);
     jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
     //va_end(args);
-
     // Catch exception
     if( (*jenv)->ExceptionCheck(jenv) ) {
+	elog(WARNING,"Java exception occured in calling static Method");
         return 1;
     }
 
@@ -213,7 +209,6 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
     
     
     jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
-
     // Check consistency
     //... (match of length)
 
@@ -224,7 +219,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         
         // Single return 
         // ...
-
+	elog(ERROR,"Non-composite return not implemented in moonshot yet (easy to do)");
        
        
     } else {
@@ -318,12 +313,13 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     *numOptions = N1+N2+21;
     JavaVMOption* options = malloc( (*numOptions)*sizeof(JavaVMOption));
     
-    options[0].optionString = "-Djava.class.path=/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
+    //options[0].optionString = "-Djava.class.path=/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
+    options[0].optionString = "-Xmx2G"; 
     options[1].optionString = "-XX:-UseCompressedOops"; 
     options[2].optionString = "-XX:+UnlockExperimentalVMOptions";
     options[3].optionString = "-XX:+EnableJVMCI"; 
     options[4].optionString = "--module-path=.:/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/tornado";
-    options[5].optionString = "-Djava.library.path=/data/TornadoVM/bin/sdk/lib";
+    options[5].optionString = "-Djava.library.path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/lib";
     options[6].optionString = "-Dtornado.load.api.implementation=uk.ac.manchester.tornado.runtime.tasks.TornadoTaskGraph";
     options[7].optionString = "-Dtornado.load.runtime.implementation=uk.ac.manchester.tornado.runtime.TornadoCoreRuntime";
     options[8].optionString = "-Dtornado.load.tornado.implementation=uk.ac.manchester.tornado.runtime.common.Tornado";
@@ -333,7 +329,7 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     options[12].optionString = "-Dtornado.load.annotation.implementation=uk.ac.manchester.tornado.annotation.ASMClassVisitor"; 
     options[13].optionString = "-Dtornado.load.annotation.parallel=uk.ac.manchester.tornado.api.annotations.Parallel";
     options[14].optionString = "--upgrade-module-path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/graalJars";
-    options[15].optionString = "-Xmx5G";
+    options[15].optionString = "-Xms512M";
     options[16].optionString = "-XX:+UseParallelGC";
     options[17].optionString = "-Dtornado.profiler=False";
     options[18].optionString = "--add-modules=ALL-SYSTEM,tornado.runtime,tornado.annotation,tornado.drivers.common,tornado.drivers.opencl,unsupervised";
@@ -347,7 +343,11 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     for(int i=0; i < N2; i++) {
         options[21+N1+i].optionString = lines2[i];
     }
- 
+/*
+	for(int i=0; i < 21+N1+N2;i++) {
+		elog(WARNING,"[DEBUG](jvm option): %s",options[i].optionString);	
+	} 
+*/
     return options;
 } 
 

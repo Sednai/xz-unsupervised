@@ -308,7 +308,7 @@ moonshot_worker_main(Datum main_arg)
 
 		Datum values[entry->n_return];
 		bool primitive[entry->n_return];
-
+		elog(WARNING,"[DEBUG](main_worker_loop): Before java call: %s",entry->signature);
 		int jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, &args);
 	
 		// Check for exception
