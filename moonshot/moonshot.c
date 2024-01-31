@@ -495,28 +495,40 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
    
 }
 
-
-
 PG_FUNCTION_INFO_V1(moonshot_clear_queue);
 Datum
 moonshot_clear_queue(PG_FUNCTION_ARGS) {
-    
     if(worker_head == NULL) {
-        elog(ERROR,"Can not reset queue if workers have not been initialized yet");
-    } else {
-
-        SpinLockAcquire(&worker_head->lock);
-        int c = 0;
-        while(!dlist_is_empty(&worker_head->exec_list)) {
-            dlist_node* dnode = dlist_pop_head_node(&worker_head->exec_list);
-            dlist_push_tail(&worker_head->free_list,dnode);
-            c++;
-        }
+        Oid			roleid = GetUserId();
+	    Oid			dbid = MyDatabaseId;
+	
+        char buf[12];
+        snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
-        SpinLockRelease(&worker_head->lock);   
-
-        PG_RETURN_INT32(c);
+        bool found = false;
+        worker_head = ShmemInitStruct(buf,
+								   sizeof(worker_data_head),
+								   &found);
+        if(!found) {
+            worker_head->n_workers = 0;
+        }
     }
+
+    if(worker_head->n_workers == 0) {
+        elog(ERROR,"Can not restart workers if not started yet");
+    }
+
+    SpinLockAcquire(&worker_head->lock);
+    int c = 0;
+    while(!dlist_is_empty(&worker_head->exec_list)) {
+        dlist_node* dnode = dlist_pop_head_node(&worker_head->exec_list);
+        dlist_push_tail(&worker_head->free_list,dnode);
+        c++;
+    }
+    
+    SpinLockRelease(&worker_head->lock);   
+
+    PG_RETURN_INT32(c);
 }
 
 PG_FUNCTION_INFO_V1(moonshot_show_queue);
@@ -534,10 +546,14 @@ moonshot_show_queue(PG_FUNCTION_ARGS) {
         worker_head = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
-        if(worker_head == NULL) {
-            elog(ERROR,"Can not show queues if workers not started yet");
+        if(!found) {
+            worker_head->n_workers = 0;
         }
     } 
+
+    if(worker_head->n_workers == 0) {
+        elog(ERROR,"Can not restart workers if not started yet");
+    }
 
     SpinLockAcquire(&worker_head->lock);
     
@@ -569,20 +585,22 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
         worker_head = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
-        if(worker_head == NULL) {
-            elog(ERROR,"Can not restart workers if not started yet");
+        if(!found) {
+            worker_head->n_workers = 0;
         }
-    } 
+    }
 
     SpinLockAcquire(&worker_head->lock);
-    
-    int c = 0;
-    elog(WARNING,"[DEBUG]: Terminating pid %d",worker_head->pid[0]);
-       
-    int r = kill(worker_head->pid[0], SIGTERM);
-    
+    int n_workers = worker_head->n_workers;
+    int pid = worker_head->pid[0];
     SpinLockRelease(&worker_head->lock);   
 
+    if(n_workers == 0) {
+        elog(ERROR,"Can not restart workers if not started yet");
+    }
+         
+    int r = kill(pid, SIGTERM);
+    
     PG_RETURN_INT32(r);
 }
 
