@@ -50,3 +50,5 @@ CREATE FUNCTION kmeans_ms(Text,Text,int,int,Float4,bool,int,bool) returns setof 
 ```
 ## Usage under moonshot
 As for pljava (in particular `set pljava.nativearrays=on`), but `kmeans_ms`. 
+
+Note that the moonshot background workers live on the datanodes. Hence the maintenance functions have to be called via execute direct.
