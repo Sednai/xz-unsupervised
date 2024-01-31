@@ -143,9 +143,9 @@ kmeans_gradients_cpu_float(PG_FUNCTION_ARGS)
         char* method_name = "kmeans_gradients_cpu_float_ms";
         char* signature = "(Ljava/lang/String;Ljava/lang/String;IF[F)Lai/sedn/unsupervised/GradientReturn;";
 
-        strncpy(entry->class_name, class_name, strlen(class_name));
-        strncpy(entry->method_name, method_name, strlen(method_name));
-        strncpy(entry->signature, signature, strlen(signature));
+        strncpy(entry->class_name, class_name, strlen(class_name)+1);
+        strncpy(entry->method_name, method_name, strlen(method_name)+1);
+        strncpy(entry->signature, signature, strlen(signature)+1);
         entry->n_return = natts;
         entry->notify_latch = MyLatch;
         
@@ -332,9 +332,9 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
         char* method_name = "kmeans_gradients_tvm_float_ms";
         char* signature = "(Ljava/lang/String;Ljava/lang/String;IFI[F)Lai/sedn/unsupervised/GradientReturn;";
 
-        strncpy(entry->class_name, class_name, strlen(class_name));
-        strncpy(entry->method_name, method_name, strlen(method_name));
-        strncpy(entry->signature, signature, strlen(signature));
+        strncpy(entry->class_name, class_name, strlen(class_name)+1);
+        strncpy(entry->method_name, method_name, strlen(method_name)+1);
+        strncpy(entry->signature, signature, strlen(signature)+1);
         entry->n_return = natts;
         entry->notify_latch = MyLatch;
         
@@ -456,7 +456,7 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
                     // Copy message
                     char buf[2048];
                     strncpy(buf, entry->data, 2048);
-                    
+                    entry->error = false;
                     // Put to free list 
                     SpinLockAcquire(&worker_head->lock);
                     dlist_push_tail(&worker_head->free_list,entry);           

@@ -256,11 +256,9 @@ public class Kmeans {
 		float[] runstats = new float[3];
 		
 		long tic_global = System.nanoTime();
-			
 		// Prepare data ResultSet
 		db_object rs = prepare_db_data_moonshot(table,cols,batch_percent);
 		Moonshot moonshot = rs.M;
-			
 		// Vars for Tornado
 		int[] Nc = new int[1];
 		Nc[0] = rs.Nc;
@@ -278,20 +276,18 @@ public class Kmeans {
 		// Centroids length
 		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
 				
-		
 		// Init Tornado
 		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
 		
 		GridScheduler gridScheduler = new GridScheduler();
 		
-		KernelContext context = new KernelContext();    
+		KernelContext context = new KernelContext();
 		TaskGraph taskGraph = new TaskGraph("s0")
 				.transferToDevice(DataTransferMode.FIRST_EXECUTION, centroids, ccentroid, d, Nc, K, centroids_L)       	
 				.transferToDevice(DataTransferMode.EVERY_EXECUTION, v_batch, N)
 	        	.task("t0", Kmeans::approx_euclidean_distance_tvm_kernel, context,  v_batch, centroids, N, d, Nc, K, centroids_L)
 	        	.task("t1", Kmeans::search_min_distance_tvm_kernel, context, d, N, ccentroid, K)
 	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
-		
 		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
 		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
 		
@@ -301,7 +297,7 @@ public class Kmeans {
 		// Init return vars
 		int[] ncount = new int[K[0]];
 		float[][] gradients = new float[K[0]][Nc[0]];
-		
+
 		// Do batching
 		boolean stop = false;
 		try {
@@ -384,7 +380,6 @@ public class Kmeans {
 		// Force GC
 		System.gc();
 		System.runFinalization();
-				
 		return T;
 	}
 	
