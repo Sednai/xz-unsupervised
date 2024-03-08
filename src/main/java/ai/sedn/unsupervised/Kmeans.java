@@ -256,15 +256,18 @@ public class Kmeans {
 		float[] runstats = new float[3];
 		
 		long tic_global = System.nanoTime();
+			
 		// Prepare data ResultSet
 		db_object rs = prepare_db_data_moonshot(table,cols,batch_percent);
 		Moonshot moonshot = rs.M;
+		
 		// Vars for Tornado
 		int[] Nc = new int[1];
 		Nc[0] = rs.Nc;
 		
 		int[] N = new int[1];
 		float[] centroids = new float[Kin*Nc[0]];
+		
 		System.arraycopy(in_centroids, 0, centroids, 0, in_centroids.length);
 		
 		int[] ccentroid = new int[tvm_batch_size];
@@ -276,20 +279,32 @@ public class Kmeans {
 		// Centroids length
 		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
 				
+		
 		// Init Tornado
 		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
 		
 		GridScheduler gridScheduler = new GridScheduler();
+	
+		System.out.println("[DEBUG] starting kernel init");
 		
-		KernelContext context = new KernelContext();
+		try {
+		KernelContext context = new KernelContext();    
 		TaskGraph taskGraph = new TaskGraph("s0")
 				.transferToDevice(DataTransferMode.FIRST_EXECUTION, centroids, ccentroid, d, Nc, K, centroids_L)       	
 				.transferToDevice(DataTransferMode.EVERY_EXECUTION, v_batch, N)
 	        	.task("t0", Kmeans::approx_euclidean_distance_tvm_kernel, context,  v_batch, centroids, N, d, Nc, K, centroids_L)
 	        	.task("t1", Kmeans::search_min_distance_tvm_kernel, context, d, N, ccentroid, K)
 	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
+		System.out.println("[DEBUG] graph ready");
+		
 		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
+		
+		System.out.println("[DEBUG] graph snapshot ready");
+		
 		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
+		
+		System.out.println("[DEBUG] Execution plan ready");
+		
 		
 		gridScheduler.setWorkerGrid("s0.t0", gridworker);
 		gridScheduler.setWorkerGrid("s0.t1", gridworker);
@@ -297,7 +312,10 @@ public class Kmeans {
 		// Init return vars
 		int[] ncount = new int[K[0]];
 		float[][] gradients = new float[K[0]][Nc[0]];
-
+		
+		System.out.println("[DEBUG] Before main loop");
+		
+		
 		// Do batching
 		boolean stop = false;
 		try {
@@ -350,7 +368,8 @@ public class Kmeans {
 				}	
 			}
 			
-		} catch(Throwable t) {		
+		} catch(Throwable t) {	
+			t.printStackTrace();
 			throw new SQLException(t);
 		}
 		
@@ -380,7 +399,14 @@ public class Kmeans {
 		// Force GC
 		System.gc();
 		System.runFinalization();
+		
 		return T;
+		
+		} catch(Exception e) {
+			e.printStackTrace();
+		}
+				
+		return null;
 	}
 	
 	
@@ -500,6 +526,7 @@ public class Kmeans {
 				
 				array = false;
 			} else {
+				
 				// Check if array length is encoded in cols:
 				String[] parts = cols.split(":");
 				if(parts.length < 2) {
