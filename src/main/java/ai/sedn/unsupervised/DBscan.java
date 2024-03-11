@@ -53,18 +53,20 @@ public class DBscan {
 
 	public static boolean dbscan_batch(String tabname, String colname, String idcolname, String returntabname, int batchsize, float eps, int minPts, long lastID, int C, ResultSet receiver) throws SQLException {
 		Connection conn   = DriverManager.getConnection(m_url);
-		System.out.println("[DEBUG](batch) start: "+lastID+" C: "+C);
+		System.out.println("[DEBUG](batch) ***start: "+lastID+" C: "+C+"(eps: "+eps+", minPts: "+minPts+")");
 		// Get sources
-		String cmd = "select "+idcolname+",class"+" from "+returntabname+" where "+idcolname+" >= "+lastID+" limit "+batchsize;
+		String cmd = "select "+idcolname+",class"+" from "+returntabname+" where "+idcolname+" > "+lastID+" order by "+idcolname+" asc limit "+batchsize;
 		PreparedStatement stmt = conn.prepareStatement(cmd);
 		ResultSet rs = stmt.executeQuery();	
 		
 		// Init batch
 		Map<Long,dbscan_cache> M = new HashMap<Long,dbscan_cache>();
 		String bquery = "select "+idcolname+",vector_to_float8("+colname+",0,false) from "+tabname+" where "+idcolname+" in (";
+		int fc = 0;
+		int bqc = 0;
 		while(rs.next()) {
-			Long sid = rs.getLong(1);
-			Integer cid = rs.getInt(2); // WARNING: NULL -> 0
+			long sid = rs.getLong(1);
+			int cid = rs.getInt(2); // WARNING: NULL -> 0
 			if(cid == 0) { // <- UNDEFINED POINT
 				// Only consider points undefined yet	
 				dbscan_cache D = new dbscan_cache();
@@ -74,97 +76,126 @@ public class DBscan {
 				D.label = 0; // UNDEFINED
 				M.put(sid, D);
 				bquery += sid+",";
-			}		
+				bqc++;
+			} else {
+				fc++;
+			}
 			lastID = sid;
 		}
-		bquery = bquery.substring(0, bquery.length()-1);
-		bquery+=");";
 		
-		// Get bquery data
-		stmt = conn.prepareStatement(bquery);
-		rs = stmt.executeQuery();
+		if(bqc > 0) {
+			bquery = bquery.substring(0, bquery.length()-1);
 		
-		// Store vectors
-		ArrayList<Long> bpoints = new ArrayList<Long>();
-		while(rs.next()) {
+			bquery+=");";
 			
-			Long sid = rs.getLong(1);
-			//String v = rs.getString(2);
-			double[] v = (double[]) rs.getObject(2); // <- To be changed after change in DB ! ( to Float )
+			// Get bquery data
+			stmt = conn.prepareStatement(bquery);
+			rs = stmt.executeQuery();
 			
-			if (v.length > 0) {
-				M.get(sid).vector = v;	
-				bpoints.add(sid);
-			} else {
-				M.remove(sid);
-			}
-		}
-		
-		// Loop over points and query for neighbors
-			
-		System.out.println("[DEBUG] Loop over batch points");
-		
-		for (Long key : bpoints) {
-			
-			// Only consider ids with data
-			double[] v = M.get(key).vector;
-			if(v.length == 0) { // IGNORE MISSING DATA ROWS
-				continue;
-			}
-		
-			// Query for neighbors
-			List<dbscan_cache> NN = loadNN(conn, tabname, idcolname, colname, eps, key, v, M); 
-			
-			//System.out.println("NN: "+NN.size());
+			// Store vectors
+			int fc2 = 0;
+			ArrayList<Long> bpoints = new ArrayList<Long>();
+			while(rs.next()) {
 				
-			if(NN.size() < minPts) {
-				M.get(key).label = 1; // NOISE
-				continue;
-			}	
-			
-			// Load labels
-			loadClassLabels(conn,returntabname,idcolname,key,M,NN);
-			
-			// Set neighbors and add to cache
-			for(dbscan_cache P : NN) {
-				M.get(key).NN.add(P.sid);
-				M.put(P.sid, P);
-			}
-			
-			C += 1; // Set new class label
-			
-			// Expand class
-			for(int p = 0; p < M.get(key).NN.size(); p++) {
-				dbscan_cache P = M.get( M.get(key).NN.get(p) );
-				if(P.label == 1) {
-					P.label = C;
+				long sid = rs.getLong(1);
+				double[] v = (double[]) rs.getObject(2); // <- To be changed after change in DB ! ( to Float )
+				
+				if (v.length > 0) {
+					M.get(sid).vector = v;	
+					bpoints.add(sid);
+				} else {
+					M.remove(sid);
+					fc2++;
 				}
+			}
+			
+			// Loop over points and query for neighbors
 				
-				if(P.label != 0) {
+			System.out.println("[DEBUG] Loop over batch points ("+bqc+","+bpoints.size()+","+M.size()+","+fc+","+fc2+")");
+			int pmax=0;
+			for (Long key : bpoints) {
+				
+				// Skip if already labeled 
+				if(M.get(key).label > 0) {
 					continue;
 				}
 				
-				P.label = C;
-				
 				// Query for neighbors
-				NN = loadNN(conn, tabname, idcolname, colname, eps, Long.valueOf(P.sid), P.vector, M); 
+				List<dbscan_cache> NN = loadNN(conn, tabname, idcolname, colname, eps, key, M.get(key).vector, M); 
 				
-				// Query for class info
-				if( NN.size() > minPts) {
-					loadClassLabels(conn,returntabname,idcolname,key,M,NN);
-							
-					//System.out.println("  eNN: "+NN.size());
+				//System.out.println("NN: "+NN.size());
 					
-					// Add points
-					for(dbscan_cache Px : NN) {
-						M.get(key).NN.add(Px.sid);
-						M.put(Px.sid, Px);
-					}	
+				if(NN.size() < minPts) {
+					M.get(key).label = 1; // NOISE
+					continue;
+				}	
+				
+				// Load labels
+				loadClassLabels(conn,returntabname,idcolname,M,NN);
+				
+				// Set neighbors and add to cache
+				for(dbscan_cache P : NN) {
+					M.get(key).NN.add(P.sid);
+					M.put(P.sid, P);
 				}
-			}
-		}			
-		
-		System.out.println("[DEBUG](Serialize) batch, C: "+C);
+				
+				C++; // Set new class label
+				M.get(key).label = C; 
+				
+				// Expand class
+				for(int p = 0; p < M.get(key).NN.size(); p++) {
+					
+					dbscan_cache P = M.get( M.get(key).NN.get(p) );
+					
+					if(P.label == 1) {
+						P.label = C;
+					}
+					
+					if(P.label != 0) {
+						continue;
+					}
+					
+					P.label = C;
+					
+					// Query for neighbors
+					List<dbscan_cache> NN2 = loadNN(conn, tabname, idcolname, colname, eps, P.sid, P.vector, M); 
+					
+					// Query for class info
+					if( NN2.size() >= minPts) {
+						loadClassLabels(conn,returntabname,idcolname,M,NN2);
+						
+						System.out.println("p: "+p+"  eNN: "+NN2.size()+" before: "+M.get(key).NN.size());
+										
+						// Add points
+						for(dbscan_cache Px : NN2) {
+							if(Px.sid != key) { // Do not overwrite existing key 
+								M.get(key).NN.add(Px.sid);
+								M.put(Px.sid, Px);
+							}
+						}	
+						
+						System.out.println("  eNN: after:"+M.get(key).NN.size());
+						
+					}
+				}
+				
+				if(M.get(key).NN.size() > pmax) {
+					pmax = M.get(key).NN.size();
+				}
+				
+				
+				// Cleanup
+				M.get(key).NN.clear();
+				/*
+				serializeCacheList(conn, returntabname, idcolname, M.get(key).NN,M);
+				for(long sid : M.get(key).NN) {
+					M.remove(sid);
+				}
+				*/
+			}			
+			System.out.println("[DEBUG](Serialize) batch, C: "+C+" pmax: "+pmax);
+				
+		}
 		
 		// Serialize cache to return table
 		serializeCache(conn, returntabname, idcolname, M);
@@ -174,7 +205,7 @@ public class DBscan {
 		
 		conn.close();
 		
-		System.out.println("[DEBUG](batch) end: "+lastID+" C: "+C);
+		System.out.println("[DEBUG](batch) ***end: "+lastID+" C: "+C);
 		
 		return true;
 	}		
@@ -211,8 +242,25 @@ public class DBscan {
 		return Nbatch;
 	}
 
+	private static int serializeCacheList(Connection conn, String returntabname, String idcolname, List<Long> L,Map<Long, dbscan_cache> M) throws SQLException {
+		Statement stmt = conn.createStatement();
+		int c = 0;
+		for (long sid : L)  {
+			dbscan_cache C = M.get(sid);
+			if(C.label > 0) {
+				// Store
+				String cmd = "update "+returntabname+" set class="+C.label+" where "+idcolname+"="+C.sid;
+				stmt.execute(cmd);
+				c++;
+			}	
+		}
+		System.out.println("[DEBUG](serializeCache) -> "+c+" of "+L.size());
+		
+		return c;
+	}
 	
-	private static void serializeCache(Connection conn, String returntabname, String idcolname, Map<Long, dbscan_cache> M) throws SQLException {
+	
+	private static int serializeCache(Connection conn, String returntabname, String idcolname, Map<Long, dbscan_cache> M) throws SQLException {
 		Statement stmt = conn.createStatement();
 		int c = 0;
 		for (Long key : M.keySet()) {
@@ -225,7 +273,9 @@ public class DBscan {
 				c++;
 			}	
 		}
-		System.out.println("[DEBUG](serializeCache) -> "+c);
+		System.out.println("[DEBUG](serializeCache) -> "+c+" of "+M.size());
+		
+		return c;
 	}
 	
 	/**
@@ -241,7 +291,7 @@ public class DBscan {
 	 * @param M
 	 * @throws SQLException
 	 */
-	private static List<dbscan_cache> loadNN(Connection conn, String tabname, String idcolname, String colname, float eps, Long key, double[] v, Map<Long,dbscan_cache> M) throws SQLException {
+	private static List<dbscan_cache> loadNN(Connection conn, String tabname, String idcolname, String colname, float eps, long key, double[] v, Map<Long,dbscan_cache> M) throws SQLException {
 		String vs  = array_to_vec(v);
 		String cmd = "select "+idcolname+",vector_to_float8("+colname+",0,false)"+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'";
 		PreparedStatement stmt = conn.prepareStatement(cmd);
@@ -251,19 +301,17 @@ public class DBscan {
 		
 		// Get neighbors
 		while(rs.next()) {
-			Long nsid = rs.getLong(1);
+			long nsid = rs.getLong(1);
 			double[] nv = (double[]) rs.getObject(2);
-			if(nsid.compareTo(key) != 0) { // Do not keep same
+			if(nsid != key) { // Do not keep same
 				dbscan_cache D = new dbscan_cache();
 				D.sid = nsid;
 				D.vector = nv;
 				D.NN = new ArrayList<Long>();
-				res.add(D);
-				
-				//System.out.println("NN: "+nsid+" ("+key+")");
+				res.add(D);	
 			}
 		}
-		
+		System.out.println("NN query: "+key+" => "+res.size());
 		return res;
 	}
 	
@@ -277,7 +325,7 @@ public class DBscan {
 	 * @param M
 	 * @throws SQLException
 	 */
-	private static void loadClassLabels(Connection conn, String returntabname, String idcolname, Long key, Map<Long,dbscan_cache> M, List<dbscan_cache> A) throws SQLException {
+	private static void loadClassLabels(Connection conn, String returntabname, String idcolname, Map<Long,dbscan_cache> M, List<dbscan_cache> A) throws SQLException {
 		// ToDo: Explicitly supply list
 		
 		// Load labels
@@ -304,17 +352,19 @@ public class DBscan {
 			// Set labels
 			while(rs.next()) {
 				// ToDo: Change neighbors list to hashmap
-				long nsid = (long) rs.getLong(1);
+				long nsid = rs.getLong(1);
 				int cl = rs.getInt(2);
 				for(dbscan_cache P : A) {
 					if(P.sid == nsid) {
-						P.label = cl;
+						P.label = cl;		
 						break;
 					}
 				}
 			}
 		
 		}
+		
+		//System.out.println("[DEBUG](loadLabels) c: "+c+" -> "+fc);
 	}
 	
 	/*
