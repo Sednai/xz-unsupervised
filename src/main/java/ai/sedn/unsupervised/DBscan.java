@@ -152,6 +152,7 @@ public class DBscan {
 					}
 					
 					if(P.label != 0) {
+						P.vector = null; // Do not need anymore vec info if label set
 						continue;
 					}
 					
@@ -164,7 +165,7 @@ public class DBscan {
 					if( NN2.size() >= minPts) {
 						loadClassLabels(conn,returntabname,idcolname,M,NN2);
 						
-						System.out.println("p: "+p+"  eNN: "+NN2.size()+" before: "+M.get(key).NN.size());
+						//System.out.println("p: "+p+"  eNN: "+NN2.size()+" before: "+M.get(key).NN.size());
 										
 						// Add points
 						for(dbscan_cache Px : NN2) {
@@ -174,16 +175,17 @@ public class DBscan {
 							}
 						}	
 						
-						System.out.println("  eNN: after:"+M.get(key).NN.size());
+						//System.out.println("  eNN: after:"+M.get(key).NN.size());
 						
 					}
+					
+					P.vector = null; // Do not need anymore vec info if label set
 				}
 				
 				if(M.get(key).NN.size() > pmax) {
 					pmax = M.get(key).NN.size();
 				}
-				
-				
+						
 				// Cleanup
 				M.get(key).NN.clear();
 				/*
@@ -303,15 +305,21 @@ public class DBscan {
 		while(rs.next()) {
 			long nsid = rs.getLong(1);
 			double[] nv = (double[]) rs.getObject(2);
-			if(nsid != key) { // Do not keep same
-				dbscan_cache D = new dbscan_cache();
-				D.sid = nsid;
-				D.vector = nv;
-				D.NN = new ArrayList<Long>();
-				res.add(D);	
+			if(M.containsKey(nsid)) {
+				if(nsid != key) { // Do not keep same
+					res.add(M.get(nsid));
+				}
+			} else {
+				if(nsid != key) { // Do not keep same
+					dbscan_cache D = new dbscan_cache();
+					D.sid = nsid;
+					D.vector = nv;
+					D.NN = new ArrayList<Long>();
+					res.add(D);	
+				}		
 			}
 		}
-		System.out.println("NN query: "+key+" => "+res.size());
+		//System.out.println("NN query: "+key+" => "+res.size());
 		return res;
 	}
 	
