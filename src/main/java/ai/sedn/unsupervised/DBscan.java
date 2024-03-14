@@ -169,9 +169,11 @@ public class DBscan {
 										
 						// Add points
 						for(dbscan_cache Px : NN2) {
-							if(Px.sid != key) { // Do not overwrite existing key 
-								M.get(key).NN.add(Px.sid);
-								M.put(Px.sid, Px);
+							if(Px.sid != key && !NN.contains(Px)) { // Do not overwrite existing key and check if already in List (expensive, but hashmap problematic for dynamic addition of elements while looping)
+								if(Px.label < 2) {
+									M.get(key).NN.add(Px.sid);
+									M.put(Px.sid, Px);
+								}
 							}
 						}	
 						
@@ -314,7 +316,7 @@ public class DBscan {
 					dbscan_cache D = new dbscan_cache();
 					D.sid = nsid;
 					D.vector = nv;
-					D.NN = new ArrayList<Long>();
+					D.NN = new ArrayList<Long>(); // <- Not needed I think.
 					res.add(D);	
 				}		
 			}
