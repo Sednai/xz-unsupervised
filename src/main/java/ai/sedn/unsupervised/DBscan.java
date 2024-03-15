@@ -38,6 +38,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
 *
@@ -71,7 +73,6 @@ public class DBscan {
 				// Only consider points undefined yet	
 				dbscan_cache D = new dbscan_cache();
 				D.sid = sid;
-				D.NN = new ArrayList<Long>();
 				D.vector = null;
 				D.label = 0; // UNDEFINED
 				M.put(sid, D);
@@ -133,9 +134,14 @@ public class DBscan {
 				// Load labels
 				loadClassLabels(conn,returntabname,idcolname,M,NN);
 				
+				// ToDo: Do not store NN in object, but locally only ! (safes arraylist creation) 
+				List<Long> NNsid = new ArrayList<Long>();
+				Set<Long>  NNsid_set = new HashSet<Long>();
+				
 				// Set neighbors and add to cache
 				for(dbscan_cache P : NN) {
-					M.get(key).NN.add(P.sid);
+					NNsid.add(P.sid);
+					NNsid_set.add(P.sid);
 					M.put(P.sid, P);
 				}
 				
@@ -143,9 +149,9 @@ public class DBscan {
 				M.get(key).label = C; 
 				
 				// Expand class
-				for(int p = 0; p < M.get(key).NN.size(); p++) {
+				for(int p = 0; p < NNsid.size(); p++) {
 					
-					dbscan_cache P = M.get( M.get(key).NN.get(p) );
+					dbscan_cache P = M.get( NNsid.get(p) );
 					
 					if(P.label == 1) {
 						P.label = C;
@@ -169,11 +175,10 @@ public class DBscan {
 										
 						// Add points
 						for(dbscan_cache Px : NN2) {
-							if(Px.sid != key && !NN.contains(Px)) { // Do not overwrite existing key and check if already in List (expensive, but hashmap problematic for dynamic addition of elements while looping)
-								if(Px.label < 2) {
-									M.get(key).NN.add(Px.sid);
-									M.put(Px.sid, Px);
-								}
+							if(Px.sid != key && Px.label < 2 && !NNsid_set.contains(Px.sid)) { // Do not overwrite existing key and check if already in List (hashmap problematic for dynamic addition of elements while looping)
+								NNsid.add(Px.sid);
+								NNsid_set.add(Px.sid);
+								M.put(Px.sid, Px);
 							}
 						}	
 						
@@ -181,15 +186,14 @@ public class DBscan {
 						
 					}
 					
-					P.vector = null; // Do not need anymore vec info if label set
+					P.vector = null; // Do not need anymore vec info if label set and NN queried
 				}
 				
-				if(M.get(key).NN.size() > pmax) {
-					pmax = M.get(key).NN.size();
+				if(NNsid.size() > pmax) {
+					pmax = NNsid.size();
 				}
 						
 				// Cleanup
-				M.get(key).NN.clear();
 				/*
 				serializeCacheList(conn, returntabname, idcolname, M.get(key).NN,M);
 				for(long sid : M.get(key).NN) {
@@ -297,7 +301,7 @@ public class DBscan {
 	 */
 	private static List<dbscan_cache> loadNN(Connection conn, String tabname, String idcolname, String colname, float eps, long key, double[] v, Map<Long,dbscan_cache> M) throws SQLException {
 		String vs  = array_to_vec(v);
-		String cmd = "select "+idcolname+",vector_to_float8("+colname+",0,false)"+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'";
+		String cmd = "select "+idcolname+",vector_to_float8("+colname+",0,false)"+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
 		PreparedStatement stmt = conn.prepareStatement(cmd);
 		ResultSet rs = stmt.executeQuery();		
 		
@@ -316,7 +320,6 @@ public class DBscan {
 					dbscan_cache D = new dbscan_cache();
 					D.sid = nsid;
 					D.vector = nv;
-					D.NN = new ArrayList<Long>(); // <- Not needed I think.
 					res.add(D);	
 				}		
 			}
