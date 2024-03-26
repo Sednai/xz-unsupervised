@@ -306,7 +306,7 @@ public class DBscan {
 		
 		
 		// For speed: 1. get only sourceids
-		String cmd = "select "+idcolname+",vector_to_float8("+colname+",0,false)"+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
+		String cmd = "select "+idcolname+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
 		
 		Statement stmt = conn.createStatement();
 		ResultSet rs = stmt.executeQuery(cmd);		
@@ -318,7 +318,6 @@ public class DBscan {
 		int c = 0;
 		while(rs.next()) {
 			long nsid = rs.getLong(1);
-			double[] nv = (double[]) rs.getObject(2);
 			if(M.containsKey(nsid)) {
 				if(nsid != key) { // Do not keep same
 					res.add(M.get(nsid));
