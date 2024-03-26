@@ -95,7 +95,8 @@ public class DBscan {
 			
 			// Store vectors
 			int fc2 = 0;
-			ArrayList<Long> bpoints = new ArrayList<Long>();
+			//ArrayList<Long> bpoints = new ArrayList<Long>();
+			Set<Long>  bpoints = new HashSet<Long>();
 			while(rs.next()) {
 				
 				long sid = rs.getLong(1);
@@ -134,7 +135,6 @@ public class DBscan {
 				// Load labels
 				loadClassLabels(conn,returntabname,idcolname,M,NN);
 				
-				// ToDo: Do not store NN in object, but locally only ! (safes arraylist creation) 
 				List<Long> NNsid = new ArrayList<Long>();
 				Set<Long>  NNsid_set = new HashSet<Long>();
 				
@@ -192,20 +192,22 @@ public class DBscan {
 				if(NNsid.size() > pmax) {
 					pmax = NNsid.size();
 				}
-						
-				// Cleanup
-				/*
-				serializeCacheList(conn, returntabname, idcolname, M.get(key).NN,M);
-				for(long sid : M.get(key).NN) {
-					M.remove(sid);
+					
+				
+				// Cleanup after class	
+				serializeCacheList(conn, returntabname, idcolname, NNsid, M);
+				
+				for(long sid : NNsid) {
+					if(!bpoints.contains(sid)) {
+						M.remove(sid);
+					}
 				}
-				*/
-			}			
+			}	
 			System.out.println("[DEBUG](Serialize) batch, C: "+C+" pmax: "+pmax);
 				
 		}
 		
-		// Serialize cache to return table
+		// Serialize remaining cache to return table
 		serializeCache(conn, returntabname, idcolname, M);
 
 		receiver.updateObject(1, lastID);
@@ -301,13 +303,19 @@ public class DBscan {
 	 */
 	private static List<dbscan_cache> loadNN(Connection conn, String tabname, String idcolname, String colname, float eps, long key, double[] v, Map<Long,dbscan_cache> M) throws SQLException {
 		String vs  = array_to_vec(v);
+		
+		
+		// For speed: 1. get only sourceids
 		String cmd = "select "+idcolname+",vector_to_float8("+colname+",0,false)"+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
-		PreparedStatement stmt = conn.prepareStatement(cmd);
-		ResultSet rs = stmt.executeQuery();		
+		
+		Statement stmt = conn.createStatement();
+		ResultSet rs = stmt.executeQuery(cmd);		
 		
 		List<dbscan_cache> res = new ArrayList<dbscan_cache>();
-		
+		cmd = "select "+idcolname+",vector_to_float8("+colname+",0,false)"+" from "+tabname+" where "+idcolname+" in (";
+	
 		// Get neighbors
+		int c = 0;
 		while(rs.next()) {
 			long nsid = rs.getLong(1);
 			double[] nv = (double[]) rs.getObject(2);
@@ -317,13 +325,27 @@ public class DBscan {
 				}
 			} else {
 				if(nsid != key) { // Do not keep same
-					dbscan_cache D = new dbscan_cache();
-					D.sid = nsid;
-					D.vector = nv;
-					res.add(D);	
+					cmd += nsid+",";
+					c++;
 				}		
 			}
 		}
+		
+		// 2. Get missing vectors
+		if(c > 0) {
+			cmd = cmd.substring(0, cmd.length()-1);
+			cmd += ");";
+		
+			rs = stmt.executeQuery(cmd);		
+			while(rs.next()) {
+
+				dbscan_cache D = new dbscan_cache();
+				D.sid = rs.getLong(1);
+				D.vector = (double[]) rs.getObject(2);
+				res.add(D);	
+			}
+		}
+			
 		//System.out.println("NN query: "+key+" => "+res.size());
 		return res;
 	}
