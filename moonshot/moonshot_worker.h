@@ -1,8 +1,8 @@
 #include "postgres.h"
 #include "storage/latch.h"
 
-#define MAX_WORKERS 1
-#define MAX_QUEUE_LENGTH 12
+#define MAX_WORKERS 2
+#define MAX_QUEUE_LENGTH 8
 
 typedef struct 
 {
@@ -10,7 +10,8 @@ typedef struct
     int taskid;
     char class_name[128];
     char method_name[128];
-    char signature[128];
+    char signature[256];
+    char return_type[1];
     Latch *notify_latch;
     int n_args;
     int n_return;

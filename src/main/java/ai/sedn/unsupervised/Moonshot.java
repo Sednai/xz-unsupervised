@@ -33,6 +33,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_DOUBLE;
 import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 import static java.lang.foreign.ValueLayout.JAVA_BOOLEAN;
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 
 import java.lang.foreign.Arena;
@@ -67,7 +68,9 @@ public class Moonshot {
 	private MethodHandle lib_getdouble;
 	private MethodHandle lib_getfloat;
 	private MethodHandle lib_getint;
+	private MethodHandle lib_getlong;
 	private MethodHandle lib_getdoublearray;
+	private MethodHandle lib_getvector;
 	
 	private GroupLayout arrayLayout = MemoryLayout.structLayout(
 			ADDRESS.withName("arr"),
@@ -94,13 +97,13 @@ public class Moonshot {
 		lib_disconnect = linker.downcallHandle(lib_disconnect_addr, lib_disconnect_sig); 
 		
 		MemorySegment lib_execute_addr = lib.find("execute").get();
-		FunctionDescriptor lib_execute_sig = FunctionDescriptor.of(JAVA_INT,ADDRESS);
+		FunctionDescriptor lib_execute_sig = FunctionDescriptor.of(JAVA_INT,ADDRESS,JAVA_BOOLEAN);
 		lib_execute = linker.downcallHandle(lib_execute_addr, lib_execute_sig); 
 		
 		MemorySegment lib_fetch_next_double_array_addr = lib.find("fetch_next_double_array").get();
 		FunctionDescriptor lib_fetch_next_double_array_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_fetch_next_double_array = linker.downcallHandle(lib_fetch_next_double_array_addr, lib_fetch_next_double_array_sig); 
-	
+		
 		MemorySegment lib_fetch_next_addr = lib.find("fetch_next").get();
 		FunctionDescriptor lib_fetch_next_sig = FunctionDescriptor.of(JAVA_BOOLEAN);
 		lib_fetch_next = linker.downcallHandle(lib_fetch_next_addr, lib_fetch_next_sig); 
@@ -117,10 +120,17 @@ public class Moonshot {
 		FunctionDescriptor lib_getint_sig = FunctionDescriptor.of(JAVA_INT,JAVA_INT);
 		lib_getint = linker.downcallHandle(lib_getint_addr, lib_getint_sig); 
 	
+		MemorySegment lib_getlong_addr = lib.find("getlong").get();
+		FunctionDescriptor lib_getlong_sig = FunctionDescriptor.of(JAVA_LONG,JAVA_INT);
+		lib_getlong = linker.downcallHandle(lib_getlong_addr, lib_getlong_sig); 
+			
 		MemorySegment lib_getdoublearray_addr = lib.find("getdoublearray").get();
 		FunctionDescriptor lib_getdoublearray_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
 		lib_getdoublearray = linker.downcallHandle(lib_getdoublearray_addr, lib_getdoublearray_sig); 
 	
+		MemorySegment lib_getvector_addr = lib.find("getvector").get();
+		FunctionDescriptor lib_getvector_sig = FunctionDescriptor.of(ADDRESS.withTargetLayout(arrayLayout),JAVA_INT);
+		lib_getvector = linker.downcallHandle(lib_getvector_addr, lib_getvector_sig); 	
 	}
 	
 	public void connect() throws Throwable {
@@ -139,12 +149,24 @@ public class Moonshot {
 		
 		var cString = arena.allocateUtf8String(query);
 		
-		int ret = (int) lib_execute.invokeExact(cString);
+		int ret = (int) lib_execute.invokeExact(cString,true);
 		
 		if(ret != 0) {
 			throw new SQLException("Execution failed! ("+query+")"); 
 		}
 	}
+	
+public void execute_nc(String query) throws Throwable {
+		
+		var cString = arena.allocateUtf8String(query);
+		
+		int ret = (int) lib_execute.invokeExact(cString,false);
+		
+		if(ret != 0) {
+			throw new SQLException("Execution failed! ("+query+")"); 
+		}
+	}
+	
 	
 	public double[] fetch_next_double_array(int column) throws Throwable{
 		
@@ -202,6 +224,11 @@ public class Moonshot {
 		return (int) lib_getint.invokeExact(column);		
 	}
 	
+	public long getlong(int column) throws Throwable {
+		return (long) lib_getlong.invokeExact(column);		
+	}
+	
+	
 	public double[] getdoublearray(int column) throws Throwable{
 		
 		MemorySegment next = (MemorySegment) lib_getdoublearray.invokeExact(column);  
@@ -215,6 +242,26 @@ public class Moonshot {
 			ARR = ARR.reinterpret(L.byteSize());
 			
 			double[] ret = ARR.toArray(JAVA_DOUBLE);
+		
+			return ret;
+		}
+		
+		return null;
+	}
+	
+	public float[] getvector(int column) throws Throwable{
+		
+		MemorySegment next = (MemorySegment) lib_getvector.invokeExact(column);  
+	
+		int size = (int) resultSize.get(next);
+		
+		if(size > 0) {
+			MemorySegment ARR = (MemorySegment) resultArr.get(next);
+			
+			SequenceLayout L = MemoryLayout.sequenceLayout(size,JAVA_FLOAT);
+			ARR = ARR.reinterpret(L.byteSize());
+			
+			float[] ret = ARR.toArray(JAVA_FLOAT);
 		
 			return ret;
 		}

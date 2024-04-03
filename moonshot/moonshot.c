@@ -12,6 +12,7 @@
 #include <time.h>
 #include "catalog/pg_type.h"
 #include "utils/memutils.h"
+#include "utils/snapmgr.h"
 
 #include "moonshot_worker.h"
 #include "moonshot_jvm.h"
@@ -95,8 +96,12 @@ double_array_data* fetch_data() {
         total += proc;
     } while(proc > 0);
 
+    struct timespec start, finish, delta;
+    clock_gettime(CLOCK_REALTIME, &start);
+    
 	clock_gettime(CLOCK_REALTIME, &finish);
     sub_timespec(start, finish, &delta);
+	elog(WARNING,"[DEBUG](RT): %d.%.9ld (%d)",(int)delta.tv_sec, delta.tv_nsec, total);
 
     SPI_cursor_close(ptl);
     
@@ -142,10 +147,13 @@ kmeans_gradients_cpu_float(PG_FUNCTION_ARGS)
         //char* signature = "()Lai/sedn/unsupervised/GradientReturn;";
         char* method_name = "kmeans_gradients_cpu_float_ms";
         char* signature = "(Ljava/lang/String;Ljava/lang/String;IF[F)Lai/sedn/unsupervised/GradientReturn;";
-
+        char* return_type = "O";
+        
         strncpy(entry->class_name, class_name, strlen(class_name)+1);
         strncpy(entry->method_name, method_name, strlen(method_name)+1);
         strncpy(entry->signature, signature, strlen(signature)+1);
+        strncpy(entry->return_type, return_type, 1);
+   
         entry->n_return = natts;
         entry->notify_latch = MyLatch;
         
@@ -256,7 +264,8 @@ kmeans_gradients_cpu_float(PG_FUNCTION_ARGS)
                     // Copy message
                     char buf[2048];
                     strncpy(buf, entry->data, 2048);
-                    
+                    entry->error = false;
+
                     // Put to free list 
                     SpinLockAcquire(&worker_head->lock);
                     dlist_push_tail(&worker_head->free_list,entry);           
@@ -293,6 +302,273 @@ kmeans_gradients_cpu_float(PG_FUNCTION_ARGS)
         elog(ERROR,"QUEUE is full");
     } 
 }
+
+jvalue PG_text_to_jvalue(text* txt) {
+    jvalue val;
+    int len = VARSIZE_ANY_EXHDR(txt)+1;
+    char t[len];
+    text_to_cstring_buffer(txt, &t, len);
+    val.l = (*jenv)->NewStringUTF(jenv, t);
+
+    return val;
+}
+
+
+/* <- NON BACKGROUND WORKER BASED ! */
+PG_FUNCTION_INFO_V1(dbscan_batch);
+Datum
+dbscan_batch(PG_FUNCTION_ARGS) 
+{
+    TupleDesc tupdesc; 
+    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("function returning record called in context "
+                            "that cannot accept type record")));
+
+    tupdesc = BlessTupleDesc(tupdesc);
+    int natts = tupdesc->natts;
+    Datum values[natts];
+    bool* nulls = palloc0( natts * sizeof( bool ) );
+   
+    // Start JVM
+    if(jenv == NIL) {
+        startJVM();
+    }
+
+    char* class_name = "ai/sedn/unsupervised/DBscan";
+    char* method_name = "dbscan_batch_ms";
+    char* signature = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFIJI)Lai/sedn/unsupervised/dbscan_batch_ret;";
+    char* return_type = "O";
+    
+    // Prep arguments
+    jvalue args[9];
+	
+    args[0] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(0) ));
+    args[1] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(1) ));
+    args[2] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(2) ));
+    args[3] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(3) ));
+    args[4].i = (jint) PG_GETARG_INT32(4);     
+    args[5].f = (jfloat) (float) PG_GETARG_FLOAT8(5);
+    args[6].i = (jint) PG_GETARG_INT32(6);   
+    args[7].j = (jlong) PG_GETARG_INT64(7);     
+    args[8].i = (jint) PG_GETARG_INT32(8);   
+
+    // Call java function
+    bool primitive[natts];
+
+    activeSPI = true;
+    connect_SPI();
+    PushActiveSnapshot(GetTransactionSnapshot());
+
+    int jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args);
+
+    disconnect_SPI();
+    PopActiveSnapshot();
+
+    if( jfr != 0 ) {
+        jthrowable exh = (*jenv)->ExceptionOccurred(jenv);
+			
+        // Clear exception
+        (*jenv)->ExceptionClear(jenv);
+			
+        if(exh !=0) {
+            jclass Throwable_class = (*jenv)->FindClass(jenv, "java/lang/Throwable");
+            jmethodID Throwable_getMessage =  (*jenv)->GetMethodID(jenv,Throwable_class, "getMessage", "()Ljava/lang/String;");
+
+            // Get error msg			
+            jstring jmsg = (jstring)(*jenv)->CallObjectMethod(jenv, exh, Throwable_getMessage);
+	
+            const char* msg = (*jenv)->GetStringUTFChars(jenv, jmsg, false);
+
+            elog(ERROR,"Java exception: %s",msg);
+				
+        } else {
+             elog(ERROR,"Unknown Java exception occured (%d)",jfr);
+        }	
+    }
+
+    HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+            
+    pfree(nulls);
+    PG_RETURN_DATUM( HeapTupleGetDatum(tuple )); 
+
+}
+
+
+/* <= PROBLEM WITH SPI AND BACKGROUND WORKER ON COORDINATOR ! 
+PG_FUNCTION_INFO_V1(dbscan_batch);
+Datum
+dbscan_batch(PG_FUNCTION_ARGS) 
+{
+    if(worker_head == NULL) {
+        worker_head = launch_dynamic_workers(2, true, false);
+        pg_usleep(5000L);	
+    } 
+    
+    TupleDesc tupdesc; 
+    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("function returning record called in context "
+                            "that cannot accept type record")));
+
+    tupdesc = BlessTupleDesc(tupdesc);
+    int natts = tupdesc->natts;
+    Datum values[natts];
+    bool* nulls = palloc0( natts * sizeof( bool ) );
+   
+    SpinLockAcquire(&worker_head->lock);
+    
+    if(!dlist_is_empty(&worker_head->free_list)) {
+        dlist_node* dnode = dlist_pop_head_node(&worker_head->free_list);
+        worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
+
+        char* class_name = "ai/sedn/unsupervised/DBscan";
+        char* method_name = "dbscan_batch_ms";
+        char* signature = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFIJI)Lai/sedn/unsupervised/dbscan_batch_ret;";
+        char* return_type = "O";
+        
+        strncpy(entry->class_name, class_name, strlen(class_name)+1);
+        strncpy(entry->method_name, method_name, strlen(method_name)+1);
+        strncpy(entry->signature, signature, strlen(signature)+1);
+        strncpy(entry->return_type, return_type, 1);
+   
+        entry->n_return = natts;
+        entry->notify_latch = MyLatch;
+        
+        // Serialize args
+        entry->n_args = 9;
+        
+        char* pos = entry->data;
+        
+        strncpy(pos, "Ljava/lang/String;", strlen("Ljava/lang/String;")+1); // 18+1
+        pos+=strlen("Ljava/lang/String;")+1;
+        datumSerialize(PG_GETARG_DATUM(0), false, false, -1, &pos);
+        
+        strncpy(pos, "Ljava/lang/String;", strlen("Ljava/lang/String;")+1);
+        pos+=strlen("Ljava/lang/String;")+1;
+        datumSerialize(PG_GETARG_DATUM(1), false, false, -1, &pos);
+
+        strncpy(pos, "Ljava/lang/String;", strlen("Ljava/lang/String;")+1);
+        pos+=strlen("Ljava/lang/String;")+1;
+        datumSerialize(PG_GETARG_DATUM(2), false, false, -1, &pos);
+
+        strncpy(pos, "Ljava/lang/String;", strlen("Ljava/lang/String;")+1);
+        pos+=strlen("Ljava/lang/String;")+1;
+        datumSerialize(PG_GETARG_DATUM(3), false, false, -1, &pos);
+
+        strncpy(pos, "I", strlen("I")+1);
+        pos+=strlen("I")+1;
+        datumSerialize(PG_GETARG_DATUM(4), false, true, -1, &pos);
+
+        strncpy(pos, "F", strlen("F")+1);
+        pos+=strlen("F")+1;
+        datumSerialize(PG_GETARG_DATUM(5), false, true, -1, &pos);
+
+        strncpy(pos, "I", strlen("I")+1);
+        pos+=strlen("I")+1;
+        datumSerialize(PG_GETARG_DATUM(6), false, true, -1, &pos);
+
+        strncpy(pos, "J", strlen("J")+1);
+        pos+=strlen("J")+1;
+        datumSerialize(PG_GETARG_DATUM(7), false, true, -1, &pos);
+
+        strncpy(pos, "I", strlen("I")+1);
+        pos+=strlen("I")+1;
+        datumSerialize(PG_GETARG_DATUM(8), false, true, -1, &pos);
+
+        // Push
+        dlist_push_tail(&worker_head->exec_list,&entry->node);
+
+        for(int w = 0; w < worker_head->n_workers; w++) {
+            SetLatch( worker_head->latch[w] );
+        }
+
+        SpinLockRelease(&worker_head->lock);
+        
+        // Wait for return
+        dlist_iter    iter;
+        bool got_signal = false;
+        while(!got_signal)
+	    {
+            SpinLockAcquire(&worker_head->lock);
+        
+            if (dlist_is_empty(&worker_head->return_list))
+            {
+                SpinLockRelease(&worker_head->lock);
+                int ev = WaitLatch(MyLatch,
+                                WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+                                1 * 1000L,
+                                PG_WAIT_EXTENSION);
+                ResetLatch(MyLatch);
+                if (ev & WL_POSTMASTER_DEATH)
+                    elog(FATAL, "unexpected postmaster dead");
+                
+                CHECK_FOR_INTERRUPTS();
+                continue;
+            }
+    
+            worker_exec_entry* ret;
+            dlist_foreach(iter, &worker_head->return_list) {
+                ret = dlist_container(worker_exec_entry, node, iter.cur);
+
+                if(ret->taskid == entry->taskid) {
+                    got_signal = true;
+                    dlist_delete(iter.cur);
+                    break;
+               }
+            }
+            SpinLockRelease(&worker_head->lock);           
+        
+            if(got_signal) {
+
+                // Process error message
+                if(entry->error) {
+                    pfree(nulls);
+                    // Copy message
+                    char buf[2048];
+                    strncpy(buf, entry->data, 2048);
+                    entry->error = false;
+
+                    // Put to free list 
+                    SpinLockAcquire(&worker_head->lock);
+                    dlist_push_tail(&worker_head->free_list,entry);           
+                    SpinLockRelease(&worker_head->lock);              
+
+                    // Throw
+                    elog(ERROR,"%s",buf);
+                }
+
+                // Prep return
+                char* data = entry->data;
+              
+                Datum values[ret->n_return];
+                for(int i = 0; i < ret->n_return; i++) {
+                    bool null;
+                    values[i] = datumDeSerialize(&data, &null);
+                }
+                
+                // Cleanup
+                SpinLockAcquire(&worker_head->lock);
+                dlist_push_tail(&worker_head->free_list,entry);           
+                SpinLockRelease(&worker_head->lock);              
+
+                HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+            
+                pfree(nulls);
+                PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));    
+            }
+        }
+
+    } else {
+        SpinLockRelease(&worker_head->lock);
+        pfree(nulls);
+        elog(ERROR,"QUEUE is full");
+    } 
+}
+*/
+
 
 /*
     Note: In future uniformize with equal code above or write general auto argument inference code
@@ -331,10 +607,13 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
         //char* signature = "()Lai/sedn/unsupervised/GradientReturn;";
         char* method_name = "kmeans_gradients_tvm_float_ms";
         char* signature = "(Ljava/lang/String;Ljava/lang/String;IFI[F)Lai/sedn/unsupervised/GradientReturn;";
+        char* return_type = "O";
 
         strncpy(entry->class_name, class_name, strlen(class_name)+1);
         strncpy(entry->method_name, method_name, strlen(method_name)+1);
         strncpy(entry->signature, signature, strlen(signature)+1);
+        strncpy(entry->return_type, return_type, 1);
+   
         entry->n_return = natts;
         entry->notify_latch = MyLatch;
         
@@ -456,7 +735,7 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
                     // Copy message
                     char buf[2048];
                     strncpy(buf, entry->data, 2048);
-                    entry->error = false;
+                    
                     // Put to free list 
                     SpinLockAcquire(&worker_head->lock);
                     dlist_push_tail(&worker_head->free_list,entry);           
@@ -494,6 +773,175 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
     }
    
 }
+
+/*
+    Note: Test-wise period search
+*/
+PG_FUNCTION_INFO_V1(psearch);
+Datum
+psearch(PG_FUNCTION_ARGS) 
+{
+    if(worker_head == NULL) {
+        worker_head = launch_dynamic_workers(2, false, true);
+        pg_usleep(5000L);		/* 5msec */
+    } 
+
+    TupleDesc tupdesc; 
+
+    /*
+    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("function returning record called in context "
+                            "that cannot accept type record")));    
+    */
+    /*
+    tupdesc = BlessTupleDesc(tupdesc);
+    int natts = tupdesc->natts;
+    Datum values[natts];
+    bool* nulls = palloc0( natts * sizeof( bool ) );
+    */
+    
+    SpinLockAcquire(&worker_head->lock);
+    /*
+        Lock acquired
+    */      
+    if(!dlist_is_empty(&worker_head->free_list)) {
+        dlist_node* dnode = dlist_pop_head_node(&worker_head->free_list);
+        worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
+
+        char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
+        char* method_name = "DoPeriodSearch";
+        char* signature = "(J[D[D[D)J";
+        char* return_type = "J";
+        strncpy(entry->class_name, class_name, strlen(class_name)+1);
+        strncpy(entry->method_name, method_name, strlen(method_name)+1);
+        strncpy(entry->signature, signature, strlen(signature)+1);
+        strncpy(entry->return_type, return_type, 1);
+        
+       // entry->n_return = natts;
+        entry->n_return = 1;
+        entry->notify_latch = MyLatch;
+        
+        // Serialize args
+        entry->n_args = 4;
+      
+        char* pos = entry->data;
+        
+        strncpy(pos, "J", strlen("J")+1);
+        pos+=strlen("J")+1;
+        datumSerialize(PG_GETARG_DATUM(0), false, true, -1, &pos);
+       
+        strncpy(pos, "[D", strlen("[D")+1);
+        pos+=strlen("[D")+1;
+        datumSerialize(PG_GETARG_DATUM(1), false, false, -1, &pos);
+       
+        strncpy(pos, "[D", strlen("[D")+1);
+        pos+=strlen("[D")+1;
+        datumSerialize(PG_GETARG_DATUM(2), false, false, -1, &pos);
+      
+
+        strncpy(pos, "[D", strlen("[D")+1);
+        pos+=strlen("[D")+1;
+        datumSerialize(PG_GETARG_DATUM(3), false, false, -1, &pos);
+     
+        // Push
+        dlist_push_tail(&worker_head->exec_list,&entry->node);
+    
+        for(int w = 0; w < worker_head->n_workers; w++) {
+            SetLatch( worker_head->latch[w] );
+        }
+
+        SpinLockRelease(&worker_head->lock);
+        /*
+            Lock released
+        */    
+
+        // Wait for return
+        dlist_iter    iter;
+        bool got_signal = false;
+        while(!got_signal)
+	    {
+            SpinLockAcquire(&worker_head->lock);
+        
+            if (dlist_is_empty(&worker_head->return_list))
+            {
+                SpinLockRelease(&worker_head->lock);
+                int ev = WaitLatch(MyLatch,
+                                WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+                                1 * 1000L,
+                                PG_WAIT_EXTENSION);
+                ResetLatch(MyLatch);
+                if (ev & WL_POSTMASTER_DEATH)
+                    elog(FATAL, "unexpected postmaster dead");
+                
+                CHECK_FOR_INTERRUPTS();
+                continue;
+            }
+    
+            worker_exec_entry* ret;
+            dlist_foreach(iter, &worker_head->return_list) {
+                ret = dlist_container(worker_exec_entry, node, iter.cur);
+
+                if(ret->taskid == entry->taskid) {
+                    got_signal = true;
+                    dlist_delete(iter.cur);
+                    break;
+               }
+            }
+            SpinLockRelease(&worker_head->lock);           
+        
+            if(got_signal) {
+
+                // Process error message
+                if(entry->error) {
+                    //pfree(nulls);
+                    // Copy message
+                    char buf[2048];
+                    strncpy(buf, entry->data, 2048);
+                    
+                    // Put to free list 
+                    SpinLockAcquire(&worker_head->lock);
+                    dlist_push_tail(&worker_head->free_list,entry);           
+                    SpinLockRelease(&worker_head->lock);              
+
+                    // Throw
+                    elog(ERROR,"%s",buf);
+                }
+
+                // Prep return
+                char* data = entry->data;
+              
+                Datum values[ret->n_return];
+                for(int i = 0; i < ret->n_return; i++) {
+                    bool null;
+                    values[i] = datumDeSerialize(&data, &null);
+                }
+                
+                // Cleanup
+                SpinLockAcquire(&worker_head->lock);
+                dlist_push_tail(&worker_head->free_list,entry);           
+                SpinLockRelease(&worker_head->lock);              
+
+                //HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+            
+                //pfree(nulls);
+                //PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));    
+                return values[0];
+            }
+        }
+
+    } else {
+        SpinLockRelease(&worker_head->lock);
+        //pfree(nulls);
+        elog(ERROR,"QUEUE is full");
+    }
+   
+}
+
+
+
+
 
 PG_FUNCTION_INFO_V1(moonshot_clear_queue);
 Datum

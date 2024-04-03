@@ -34,8 +34,8 @@ package ai.sedn.unsupervised;
 *
 */
 
-public class dbscan_batch_ret {
-	long lastID;
-	int C;
+public class dbscan_batch_ret extends MoonshotReturn {
+	public long lastID;
+	public int C;
 }
 

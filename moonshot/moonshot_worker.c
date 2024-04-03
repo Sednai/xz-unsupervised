@@ -28,7 +28,8 @@
 #include "utils/snapmgr.h"
 #include "math.h"
 
-#define WORKER_LIB "/ZNVME/xz4/app/misc/xz-unsupervised/moonshot/moonshot.so"
+#define WORKER_LIB "/data/moonshot/moonshot.so"
+
 
 bool got_signal = false;
 int worker_id;
@@ -40,11 +41,11 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	Oid			roleid = GetUserId();
 	Oid			dbid = MyDatabaseId;
 	
-    char buf[12];
+    char buf[BGW_MAXLEN];
 	if(!globalWorker) {
-		snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
+		snprintf(buf, BGW_MAXLEN, "MW_%d_%d", roleid, dbid); 
 	} else {
-		snprintf(buf, 12, "MW_global");
+		snprintf(buf, BGW_MAXLEN, "MW_global");
 	}
 
 	/* initialize worker data header */
@@ -61,7 +62,9 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
     dlist_init(&worker_head->exec_list);
     dlist_init(&worker_head->free_list);
 	dlist_init(&worker_head->return_list);
-
+	
+	SpinLockAcquire(&worker_head->lock);
+	
 	// Init free list
 	for(int i = 0; i < MAX_QUEUE_LENGTH; i++) {
 		worker_head->list_data[i].taskid = i;
@@ -77,25 +80,28 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		pid_t		pid;
 		
 		memset(&worker, 0, sizeof(worker));
-
-		if(!needSPI || globalWorker) {
-			worker.bgw_flags = BGWORKER_SHMEM_ACCESS;
-		} else {
-			worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-		}
+		worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
 		worker.bgw_restart_time = 10; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
 		sprintf(worker.bgw_library_name, WORKER_LIB);
 		sprintf(worker.bgw_function_name, "moonshot_worker_main");
 		
-		snprintf(worker.bgw_name, BGW_MAXLEN, "%s_%d",buf,(n+1));
+		snprintf(worker.bgw_name, BGW_MAXLEN, "%s",buf);
+		//snprintf(worker.bgw_name, BGW_MAXLEN, "MW_%s_%d",buf,(n+1));
+			
 		
 		worker.bgw_main_arg = Int32GetDatum(n);
 		worker.bgw_notify_pid = MyProcPid;
 
 		memcpy(&worker.bgw_extra[0],&roleid,4);
 		memcpy(&worker.bgw_extra[4],&dbid,4);
-		
+		if(!needSPI || globalWorker) {
+			worker.bgw_extra[9] = 0;
+		} else {
+			worker.bgw_extra[9] = 1;
+		}
+
+
 		if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 			continue;
 
@@ -113,10 +119,12 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 					errhint("Kill all remaining database processes and restart the database.")));
 		
 		Assert(status == BGWH_STARTED);
-
+		
 		elog(WARNING,"Moonshot worker %d of %d initialized with pid %d (from %d)",(n+1),(int) fmin(n_workers,MAX_WORKERS),pid,MyProcPid);
 	}
-    
+	
+    SpinLockRelease(&worker_head->lock);
+	
 	return worker_head;
 }
 
@@ -132,10 +140,8 @@ void
 moonshot_worker_main(Datum main_arg)
 {
 	int			workerid = DatumGetInt32(main_arg);
-	worker_id = workerid;
 
 	//StringInfoData buf;
-	char		name[20];
 	Oid			roleoid;
 	Oid			dboid;
 	bits32		flags = 0;
@@ -143,18 +149,14 @@ moonshot_worker_main(Datum main_arg)
 	memcpy(&dboid,&MyBgworkerEntry->bgw_extra[4],4);
 	memcpy(&flags,&MyBgworkerEntry->bgw_flags,4);
 
-	if( flags == (BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION) ) {
-		activeSPI = true;
-	} else {
-		activeSPI = false;
-	}
+	activeSPI = MyBgworkerEntry->bgw_extra[9];
 
-	char buf[12];
-	snprintf(buf, 12, "MW_%d_%d", roleoid, dboid); 
+	char buf[BGW_MAXLEN];
+	snprintf(buf, BGW_MAXLEN, "%s_%d", MyBgworkerEntry->bgw_name, worker_id); 
 
 	// Attach to shared memory
 	bool found;
-	worker_head = ShmemInitStruct(buf,
+	worker_head = ShmemInitStruct(MyBgworkerEntry->bgw_name,
 								   sizeof(worker_data_head),
 								   &found);
 	if(!found) {
@@ -170,15 +172,15 @@ moonshot_worker_main(Datum main_arg)
 			dlist_push_tail(&worker_head->free_list,&worker_head->list_data[i].node);
 		}
 		worker_head->n_workers = 0;
-
 	}
-	elog(WARNING,"[DEBUG]: BG worker %s init shared memory found: %d",buf,(int) found);
-
+	
 	SpinLockAcquire(&worker_head->lock); 
 	worker_head->latch[workerid] = MyLatch;
 	// Set pid (due to potential restart)
 	worker_head->pid[workerid] = MyProcPid;
 	worker_head->n_workers++;
+
+	elog(WARNING,"[DEBUG]: BG worker %s init shared memory found: %d | pid: %d, total: %d | SPI: %d",buf,(int) found,worker_head->pid[workerid],worker_head->n_workers,activeSPI);
 
 	SpinLockRelease(&worker_head->lock);
 		
@@ -187,14 +189,16 @@ moonshot_worker_main(Datum main_arg)
 	
 	/* We're now ready to receive signals */
 	BackgroundWorkerUnblockSignals();
-
-	/* Connect to our database */
-	BackgroundWorkerInitializeConnectionByOid(dboid, roleoid);
 	
+	if(activeSPI) {
+		/* Connect to our database */
+		BackgroundWorkerInitializeConnectionByOid(dboid, roleoid);
+	}
+
     // Start JVM
     startJVM();
    	
-	elog(LOG, "%s initialized",MyBgworkerEntry->bgw_name);
+	elog(LOG, "%s initialized",buf);
 		
 	/*
 	 * Main loop: do this until SIGTERM is received and processed by
@@ -204,18 +208,6 @@ moonshot_worker_main(Datum main_arg)
 	{
 		int			ret;
 
-		/* First time, allocate or get the custom wait event */
-        /*
-		if (worker_spi_wait_event_main == 0)
-			worker_spi_wait_event_main = WaitEventExtensionNew("WorkerSpiMain");
-        */
-
-		/*
-		 * Background workers mustn't call usleep() or any direct equivalent:
-		 * instead, they may wait on their process latch, which sleeps as
-		 * necessary, but is awakened if postmaster dies.  That way the
-		 * background process goes away immediately in an emergency.
-		 */
         SpinLockAcquire(&worker_head->lock);
        
         if (dlist_is_empty(&worker_head->exec_list))
@@ -263,7 +255,7 @@ moonshot_worker_main(Datum main_arg)
 
 			char* T = pos;
 		 	pos += strlen(T)+1;
-			elog(WARNING,"ARGS(%d): %d. T: %s, pos: %d",entry->n_args,i,T,(int) pos);
+			elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
 
 			bool isnull;
 			Datum arg = datumDeSerialize(&pos, &isnull);
@@ -276,8 +268,10 @@ moonshot_worker_main(Datum main_arg)
 				val.f = (jfloat) DatumGetFloat4(arg);
 			} else if(strcmp(T, "D") == 0) {
 				val.d = (jdouble) DatumGetFloat8(arg);
-			}  else if(strcmp(T, "Z") == 0) {
+			} else if(strcmp(T, "Z") == 0) {
 				val.z = (jboolean) DatumGetBool(arg);
+			} else if(strcmp(T, "J") == 0) {
+				val.j = (jlong) DatumGetInt64(arg);
 			}
 
 			// Arrays
@@ -288,6 +282,19 @@ moonshot_worker_main(Datum main_arg)
 					jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
 					(*jenv)->SetFloatArrayRegion(jenv,floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
 					val.l = floatArray;
+				} else {
+					// Copy element by element 
+					//...
+
+				}
+			}
+			else if(strcmp(T, "[D") == 0) {
+				ArrayType* v = DatumGetArrayTypeP(arg);
+				if(!ARR_HASNULL(v)) {
+					jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+					jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
+					(*jenv)->SetDoubleArrayRegion(jenv,doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
+					val.l = doubleArray;
 				} else {
 					// Copy element by element 
 					//...
@@ -308,11 +315,14 @@ moonshot_worker_main(Datum main_arg)
 
 		Datum values[entry->n_return];
 		bool primitive[entry->n_return];
-		elog(WARNING,"[DEBUG](main_worker_loop): Before java call: %s",entry->signature);
-		int jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, &args);
+		
+		elog(WARNING,"[DEBUG]: Calling java function %s->%s",entry->class_name,entry->method_name);
+			
+		int jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args);
 	
 		// Check for exception
 		if( jfr != 0 ) {
+			elog(WARNING,"[DEBUG]: Java exception occured. Code: %d",jfr);
 			// Set error msg to true;
 			entry->error = true;
 			jthrowable exh = (*jenv)->ExceptionOccurred(jenv);
@@ -350,7 +360,10 @@ moonshot_worker_main(Datum main_arg)
 	    SpinLockAcquire(&worker_head->lock);
 		dlist_push_tail(&worker_head->return_list,&entry->node);
 		SpinLockRelease(&worker_head->lock);
-
+		
+		/*
+			Cleanup
+		*/
 		if(activeSPI) {
 			/*
 				SPI cleanup
@@ -359,9 +372,6 @@ moonshot_worker_main(Datum main_arg)
 			PopActiveSnapshot();
 			CommitTransactionCommand();
 		}
-		/*
-			Cleanup
-		*/
 		SetLatch( entry->notify_latch );
 
 		elog(WARNING,"BG worker: DONE");	
