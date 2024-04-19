@@ -8,7 +8,7 @@
 #include <dlfcn.h>
 #include "moonshot_jvm.h"
 
-#define JVM_SO_FILE "/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so"
+#define JVM_SO_FILE "/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.2/lib/server/libjvm.so"
 
 //#define JVM_SO_FILE "/ZNVME/xz4/app/misc/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so"
 
@@ -136,6 +136,15 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
         int nElems = (*jenv)->GetArrayLength(jenv, arr); 
         ArrayType* v = createArray(nElems, sizeof(jfloat), FLOAT4OID, false);
 		(*jenv)->GetFloatArrayRegion(jenv,arr, 0, nElems, (jfloat*)ARR_DATA_PTR(v));
+
+        return PointerGetDatum(v); 
+    
+    } else if (strcmp(sig, "[D") == 0) {
+        *primitive = false;
+        jdoubleArray arr = (jdoubleArray) (*jenv)->GetObjectField(jenv,data,fid);
+        int nElems = (*jenv)->GetArrayLength(jenv, arr); 
+        ArrayType* v = createArray(nElems, sizeof(jdouble), FLOAT8OID, false);
+		(*jenv)->GetDoubleArrayRegion(jenv,arr, 0, nElems, (jdouble*)ARR_DATA_PTR(v));
 
         return PointerGetDatum(v); 
 
@@ -416,13 +425,13 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     //*numOptions = 10;
     JavaVMOption* options = malloc( (*numOptions)*sizeof(JavaVMOption));
     
-    options[0].optionString = "-Djava.class.path=.:/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
+    options[0].optionString = "-Djava.class.path=.:/data/psearch/PS-Modules/runtime:/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/data/psearch/PS-Modules/VariPeriodSearch-AERO-mod.jar";
   //    options[0].optionString = "-Djava.class.path=.:/data/psearch/AEROPeriodSearch/VariPeriodSearch-22.5.0-AERO.jar:/data/psearch/AEROPeriodSearch/runtime/commons-lang3-3.14.0.jar:/data/psearch/AEROPeriodSearch/runtime/commons-math3-3.6.1.jar:/data/psearch/AEROPeriodSearch/runtime/GaiaTools-20.6.1.jar:/data/psearch/AEROPeriodSearch/runtime/guava-31.1-jre.jar:/data/psearch/AEROPeriodSearch/runtime/log4j-api-2.22.0.jar:/data/psearch/AEROPeriodSearch/runtime/log4j-core-2.22.0.jar:/data/psearch/AEROPeriodSearch/runtime/log4j-slf4j2-impl-2.21.1.jar:/data/psearch/AEROPeriodSearch/runtime/slf4j-api-2.0.7.jar:/data/psearch/AEROPeriodSearch/runtime/VariConfiguration-SB-22.5.0-r785833-20240206122000.jar:/data/psearch/AEROPeriodSearch/runtime/VariFramework-SB-22.5.0-r785865M-20240206143549.jar:/data/psearch/AEROPeriodSearch/runtime/VariObjectModelInterface-22.5.0.jar:/data/psearch/AEROPeriodSearch/runtime/VariObjectModel-SB-22.5.0-r785718M-20240205141141.jar:/data/psearch/AEROPeriodSearch/runtime/VariStatistics-SB-22.5.0-r785006M-20240129170342.jar";
     //options[0].optionString = "-Xmx2G"; /data/psearch/AEROPeriodSearch/runtime
     options[1].optionString = "-XX:-UseCompressedOops"; 
     options[2].optionString = "-XX:+UnlockExperimentalVMOptions";
     options[3].optionString = "-XX:+EnableJVMCI"; 
-    options[4].optionString = "--module-path=.:/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/data/TornadoVM/bin/sdk/share/java/tornado";
+    options[4].optionString = "--module-path=.:/data/psearch/PS-Modules/runtime:/data/psearch/PS-Modules/VariPeriodSearch-AERO-mod.jar:/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/data/TornadoVM/bin/sdk/share/java/tornado";
     options[5].optionString = "-Djava.library.path=/data/TornadoVM/bin/sdk/lib";
     options[6].optionString = "-Dtornado.load.api.implementation=uk.ac.manchester.tornado.runtime.tasks.TornadoTaskGraph";
     options[7].optionString = "-Dtornado.load.runtime.implementation=uk.ac.manchester.tornado.runtime.TornadoCoreRuntime";
@@ -434,11 +443,13 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     options[13].optionString = "-Dtornado.load.annotation.parallel=uk.ac.manchester.tornado.api.annotations.Parallel";
     options[14].optionString = "--upgrade-module-path=/data/TornadoVM/bin/sdk/share/java/graalJars";
     options[15].optionString = "-Xmx2G";
+    //options[15].optionString = "--upgrade-module-path=/data/psearch/PS-Modules/runtime";
     options[16].optionString = "-XX:+UseParallelGC";
     options[17].optionString = "-Dtornado.profiler=False";
-    options[18].optionString = "--add-modules=ALL-SYSTEM,tornado.runtime,tornado.annotation,tornado.drivers.common,tornado.drivers.opencl,unsupervised";
+    options[18].optionString = "--add-modules=ALL-SYSTEM,tornado.runtime,tornado.annotation,tornado.drivers.common,tornado.drivers.opencl,unsupervised,gaia.cu7.algo.character.periodsearch";
     options[19].optionString = "--enable-preview";
     options[20].optionString = "--enable-native-access=unsupervised";
+    //options[21].optionString = "-XX:-UseCompressedClassPointers";
 
     for(int i=0; i < N1; i++) {
         //elog(WARNING,"[DEBUG](JVM options): %s",options[i].optionString);

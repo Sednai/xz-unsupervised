@@ -787,20 +787,16 @@ psearch(PG_FUNCTION_ARGS)
     } 
 
     TupleDesc tupdesc; 
-
-    /*
     if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
             ereport(ERROR,
                     (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                     errmsg("function returning record called in context "
-                            "that cannot accept type record")));    
-    */
-    /*
+                            "that cannot accept type record")));
+
     tupdesc = BlessTupleDesc(tupdesc);
     int natts = tupdesc->natts;
     Datum values[natts];
     bool* nulls = palloc0( natts * sizeof( bool ) );
-    */
     
     SpinLockAcquire(&worker_head->lock);
     /*
@@ -812,15 +808,15 @@ psearch(PG_FUNCTION_ARGS)
 
         char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
         char* method_name = "DoPeriodSearch";
-        char* signature = "(J[D[D[D)J";
-        char* return_type = "J";
+        char* signature = "(J[D[D[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
+        char* return_type = "O";
         strncpy(entry->class_name, class_name, strlen(class_name)+1);
         strncpy(entry->method_name, method_name, strlen(method_name)+1);
         strncpy(entry->signature, signature, strlen(signature)+1);
         strncpy(entry->return_type, return_type, 1);
         
-       // entry->n_return = natts;
-        entry->n_return = 1;
+        entry->n_return = natts;
+        //entry->n_return = 1;
         entry->notify_latch = MyLatch;
         
         // Serialize args
@@ -895,7 +891,7 @@ psearch(PG_FUNCTION_ARGS)
 
                 // Process error message
                 if(entry->error) {
-                    //pfree(nulls);
+                    pfree(nulls);
                     // Copy message
                     char buf[2048];
                     strncpy(buf, entry->data, 2048);
@@ -923,11 +919,169 @@ psearch(PG_FUNCTION_ARGS)
                 dlist_push_tail(&worker_head->free_list,entry);           
                 SpinLockRelease(&worker_head->lock);              
 
-                //HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+                HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
             
-                //pfree(nulls);
-                //PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));    
-                return values[0];
+                pfree(nulls);
+                PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));    
+                //return values[0];
+            }
+        }
+
+    } else {
+        SpinLockRelease(&worker_head->lock);
+        //pfree(nulls);
+        elog(ERROR,"QUEUE is full");
+    }
+   
+}
+
+PG_FUNCTION_INFO_V1(psearch_ms_gpu);
+Datum
+psearch_ms_gpu(PG_FUNCTION_ARGS) 
+{
+    if(worker_head == NULL) {
+        worker_head = launch_dynamic_workers(2, false, true);
+        pg_usleep(5000L);		/* 5msec */
+    } 
+
+    TupleDesc tupdesc; 
+    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("function returning record called in context "
+                            "that cannot accept type record")));
+
+    tupdesc = BlessTupleDesc(tupdesc);
+    int natts = tupdesc->natts;
+    Datum values[natts];
+    bool* nulls = palloc0( natts * sizeof( bool ) );
+    
+    SpinLockAcquire(&worker_head->lock);
+    /*
+        Lock acquired
+    */      
+    if(!dlist_is_empty(&worker_head->free_list)) {
+        dlist_node* dnode = dlist_pop_head_node(&worker_head->free_list);
+        worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
+
+        char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
+        char* method_name = "DoPeriodSearchGPU";
+        char* signature = "(J[D[D[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
+        char* return_type = "O";
+        strncpy(entry->class_name, class_name, strlen(class_name)+1);
+        strncpy(entry->method_name, method_name, strlen(method_name)+1);
+        strncpy(entry->signature, signature, strlen(signature)+1);
+        strncpy(entry->return_type, return_type, 1);
+        
+        entry->n_return = natts;
+        //entry->n_return = 1;
+        entry->notify_latch = MyLatch;
+        
+        // Serialize args
+        entry->n_args = 4;
+      
+        char* pos = entry->data;
+        
+        strncpy(pos, "J", strlen("J")+1);
+        pos+=strlen("J")+1;
+        datumSerialize(PG_GETARG_DATUM(0), false, true, -1, &pos);
+       
+        strncpy(pos, "[D", strlen("[D")+1);
+        pos+=strlen("[D")+1;
+        datumSerialize(PG_GETARG_DATUM(1), false, false, -1, &pos);
+       
+        strncpy(pos, "[D", strlen("[D")+1);
+        pos+=strlen("[D")+1;
+        datumSerialize(PG_GETARG_DATUM(2), false, false, -1, &pos);
+      
+
+        strncpy(pos, "[D", strlen("[D")+1);
+        pos+=strlen("[D")+1;
+        datumSerialize(PG_GETARG_DATUM(3), false, false, -1, &pos);
+     
+        // Push
+        dlist_push_tail(&worker_head->exec_list,&entry->node);
+    
+        for(int w = 0; w < worker_head->n_workers; w++) {
+            SetLatch( worker_head->latch[w] );
+        }
+
+        SpinLockRelease(&worker_head->lock);
+        /*
+            Lock released
+        */    
+
+        // Wait for return
+        dlist_iter    iter;
+        bool got_signal = false;
+        while(!got_signal)
+	    {
+            SpinLockAcquire(&worker_head->lock);
+        
+            if (dlist_is_empty(&worker_head->return_list))
+            {
+                SpinLockRelease(&worker_head->lock);
+                int ev = WaitLatch(MyLatch,
+                                WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+                                1 * 1000L,
+                                PG_WAIT_EXTENSION);
+                ResetLatch(MyLatch);
+                if (ev & WL_POSTMASTER_DEATH)
+                    elog(FATAL, "unexpected postmaster dead");
+                
+                CHECK_FOR_INTERRUPTS();
+                continue;
+            }
+    
+            worker_exec_entry* ret;
+            dlist_foreach(iter, &worker_head->return_list) {
+                ret = dlist_container(worker_exec_entry, node, iter.cur);
+
+                if(ret->taskid == entry->taskid) {
+                    got_signal = true;
+                    dlist_delete(iter.cur);
+                    break;
+               }
+            }
+            SpinLockRelease(&worker_head->lock);           
+        
+            if(got_signal) {
+
+                // Process error message
+                if(entry->error) {
+                    pfree(nulls);
+                    // Copy message
+                    char buf[2048];
+                    strncpy(buf, entry->data, 2048);
+                    
+                    // Put to free list 
+                    SpinLockAcquire(&worker_head->lock);
+                    dlist_push_tail(&worker_head->free_list,entry);           
+                    SpinLockRelease(&worker_head->lock);              
+
+                    // Throw
+                    elog(ERROR,"%s",buf);
+                }
+
+                // Prep return
+                char* data = entry->data;
+              
+                Datum values[ret->n_return];
+                for(int i = 0; i < ret->n_return; i++) {
+                    bool null;
+                    values[i] = datumDeSerialize(&data, &null);
+                }
+                
+                // Cleanup
+                SpinLockAcquire(&worker_head->lock);
+                dlist_push_tail(&worker_head->free_list,entry);           
+                SpinLockRelease(&worker_head->lock);              
+
+                HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+            
+                pfree(nulls);
+                PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));    
+                //return values[0];
             }
         }
 
