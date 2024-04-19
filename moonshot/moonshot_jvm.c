@@ -7,14 +7,11 @@
 #include "catalog/pg_type.h"
 #include <dlfcn.h>
 #include "moonshot_jvm.h"
-
-#define JVM_SO_FILE "/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.2/lib/server/libjvm.so"
-
-//#define JVM_SO_FILE "/ZNVME/xz4/app/misc/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.1/lib/server/libjvm.so"
+#include "utils/guc.h"
 
 JNIEnv *jenv;
 JavaVM *jvm;
- 
+
 //Use PG hashtable instead ?!
 char* convert_name_to_JNI_signature(char* name) {
    
@@ -315,7 +312,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
 
 
 /*
-    JVM creation
+    Read JVM options from file
 */
 
 char** readOptions(char* filename, int* N) {
@@ -358,109 +355,76 @@ char** readOptions(char* filename, int* N) {
     return lines;
 }
 
-/* 
-    xz4 
-*/
-/*
-JavaVMOption* setJVMoptions(int* numOptions) {
-    
-    // Read @ options
-    int N1;
-    char **lines1 =  readOptions("/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/etc/exportLists/common-exports",&N1);
-
-    int N2;
-    char **lines2 =  readOptions("/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/etc/exportLists/opencl-exports",&N2);
-    
-    *numOptions = N1+N2+21;
-    JavaVMOption* options = malloc( (*numOptions)*sizeof(JavaVMOption));
-    
-    options[0].optionString = "-Djava.class.path=/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
-    options[1].optionString = "-XX:-UseCompressedOops"; 
-    options[2].optionString = "-XX:+UnlockExperimentalVMOptions";
-    options[3].optionString = "-XX:+EnableJVMCI"; 
-    options[4].optionString = "--module-path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/tornado/";
-    options[5].optionString = "-Djava.library.path=/data/TornadoVM/bin/sdk/lib";
-    options[6].optionString = "-Dtornado.load.api.implementation=uk.ac.manchester.tornado.runtime.tasks.TornadoTaskGraph";
-    options[7].optionString = "-Dtornado.load.runtime.implementation=uk.ac.manchester.tornado.runtime.TornadoCoreRuntime";
-    options[8].optionString = "-Dtornado.load.tornado.implementation=uk.ac.manchester.tornado.runtime.common.Tornado";
-    options[9].optionString = "-Dtornado.load.device.implementation.opencl=uk.ac.manchester.tornado.drivers.opencl.runtime.OCLDeviceFactory";
-    options[10].optionString = "-Dtornado.load.device.implementation.ptx=uk.ac.manchester.tornado.drivers.ptx.runtime.PTXDeviceFactory";
-    options[11].optionString = "-Dtornado.load.device.implementation.spirv=uk.ac.manchester.tornado.drivers.spirv.runtime.SPIRVDeviceFactory";
-    options[12].optionString = "-Dtornado.load.annotation.implementation=uk.ac.manchester.tornado.annotation.ASMClassVisitor"; 
-    options[13].optionString = "-Dtornado.load.annotation.parallel=uk.ac.manchester.tornado.api.annotations.Parallel";
-    options[14].optionString = "--upgrade-module-path=/ZNVME/xz4/app/misc/TornadoVM/bin/sdk/share/java/graalJars";
-    options[15].optionString = "--upgrade-module-path=/ZNVME/xz4/app/misc/xz-unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar";
-    options[16].optionString = "-XX:+UseParallelGC";
-    options[17].optionString = "-Dtornado.profiler=True";
-    options[18].optionString = "--add-modules=ALL-SYSTEM,tornado.runtime,tornado.annotation,tornado.drivers.common,tornado.drivers.opencl,unsupervised";
-    options[19].optionString = "--enable-preview";
-    options[20].optionString = "--enable-native-access=unsupervised";
-
-    for(int i=0; i < N1; i++) {
-        options[21+i].optionString = lines1[i];
-    }
-
-    for(int i=0; i < N2; i++) {
-        options[21+N1+i].optionString = lines2[i];
-    }
- 
-    return options;
-} 
-*/
-
 
 /*
-    Local
+    Read JVM options from GUC
 */
 JavaVMOption* setJVMoptions(int* numOptions) {
     
-    // Read @ options
-    int N1;
-    char **lines1 =  readOptions("/data/TornadoVM/bin/sdk/etc/exportLists/common-exports",&N1);
+    // Read option string from GUC
+    char* OPTIONS = GetConfigOption("ms.jvmoptions",true,true);
 
-    int N2;
-    char **lines2 =  readOptions("/data/TornadoVM/bin/sdk/etc/exportLists/opencl-exports",&N2);
+    if(OPTIONS == NULL) {
+        elog(ERROR,"ms.jvmoptions GUC not set");
+    } 
+
+    // Parse options
+    JavaVMOption* opts = malloc( 1*sizeof(JavaVMOption) );
     
-    *numOptions = N1+N2+21;
-    //*numOptions = 10;
-    JavaVMOption* options = malloc( (*numOptions)*sizeof(JavaVMOption));
+    int No = 0;
+    bool active = false;
+    int spos = 0;
+    for(int i=0; i < strlen(OPTIONS); i++) {
+        if( (OPTIONS[i] == '-' || OPTIONS[i] == '@') && !active) { 
+            active = true;
+            spos = i;
+            continue;
+        }
+
+        if( (OPTIONS[i] == ' ' || i == strlen(OPTIONS)-1) && active) {
+            active = false;
+            int len;
+            if( i < strlen(OPTIONS)-1) {
+                len = i-spos+1;
+            } else {
+                len = i-spos+2;
+            }
+
+            // Create option
+            if(OPTIONS[spos] != '@') {
+                
+                char* buf = malloc(len); 
+                strncpy(buf,&OPTIONS[spos],len);
+                buf[len-1] = '\0';
+            
+                opts[No].optionString = buf;
+                No++;
+
+                opts = realloc(opts,No*sizeof(JavaVMOption));
+
+            } else {
+                // Read from file
+                int N;
+                char buf[i-spos]; 
+                strncpy(buf,&OPTIONS[spos],i-spos);
+             
+                char **lines =  readOptions(&buf[1],&N);
+                for(int l = 0; l < N; l++ ) {
+              
+                    opts[No].optionString = lines[l];
+                    No++;
+
+                    opts = realloc(opts,No*sizeof(JavaVMOption));
+                }
+            }
+
+            continue;
+        }
+
+    }
     
-    options[0].optionString = "-Djava.class.path=.:/data/psearch/PS-Modules/runtime:/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/data/psearch/PS-Modules/VariPeriodSearch-AERO-mod.jar";
-  //    options[0].optionString = "-Djava.class.path=.:/data/psearch/AEROPeriodSearch/VariPeriodSearch-22.5.0-AERO.jar:/data/psearch/AEROPeriodSearch/runtime/commons-lang3-3.14.0.jar:/data/psearch/AEROPeriodSearch/runtime/commons-math3-3.6.1.jar:/data/psearch/AEROPeriodSearch/runtime/GaiaTools-20.6.1.jar:/data/psearch/AEROPeriodSearch/runtime/guava-31.1-jre.jar:/data/psearch/AEROPeriodSearch/runtime/log4j-api-2.22.0.jar:/data/psearch/AEROPeriodSearch/runtime/log4j-core-2.22.0.jar:/data/psearch/AEROPeriodSearch/runtime/log4j-slf4j2-impl-2.21.1.jar:/data/psearch/AEROPeriodSearch/runtime/slf4j-api-2.0.7.jar:/data/psearch/AEROPeriodSearch/runtime/VariConfiguration-SB-22.5.0-r785833-20240206122000.jar:/data/psearch/AEROPeriodSearch/runtime/VariFramework-SB-22.5.0-r785865M-20240206143549.jar:/data/psearch/AEROPeriodSearch/runtime/VariObjectModelInterface-22.5.0.jar:/data/psearch/AEROPeriodSearch/runtime/VariObjectModel-SB-22.5.0-r785718M-20240205141141.jar:/data/psearch/AEROPeriodSearch/runtime/VariStatistics-SB-22.5.0-r785006M-20240129170342.jar";
-    //options[0].optionString = "-Xmx2G"; /data/psearch/AEROPeriodSearch/runtime
-    options[1].optionString = "-XX:-UseCompressedOops"; 
-    options[2].optionString = "-XX:+UnlockExperimentalVMOptions";
-    options[3].optionString = "-XX:+EnableJVMCI"; 
-    options[4].optionString = "--module-path=.:/data/psearch/PS-Modules/runtime:/data/psearch/PS-Modules/VariPeriodSearch-AERO-mod.jar:/data/unsupervised/java/unsupervised/target/unsupervised-0.0.1-SNAPSHOT.jar:/data/TornadoVM/bin/sdk/share/java/tornado";
-    options[5].optionString = "-Djava.library.path=/data/TornadoVM/bin/sdk/lib";
-    options[6].optionString = "-Dtornado.load.api.implementation=uk.ac.manchester.tornado.runtime.tasks.TornadoTaskGraph";
-    options[7].optionString = "-Dtornado.load.runtime.implementation=uk.ac.manchester.tornado.runtime.TornadoCoreRuntime";
-    options[8].optionString = "-Dtornado.load.tornado.implementation=uk.ac.manchester.tornado.runtime.common.Tornado";
-    options[9].optionString = "-Dtornado.load.device.implementation.opencl=uk.ac.manchester.tornado.drivers.opencl.runtime.OCLDeviceFactory";
-    options[10].optionString = "-Dtornado.load.device.implementation.ptx=uk.ac.manchester.tornado.drivers.ptx.runtime.PTXDeviceFactory";
-    options[11].optionString = "-Dtornado.load.device.implementation.spirv=uk.ac.manchester.tornado.drivers.spirv.runtime.SPIRVDeviceFactory";
-    options[12].optionString = "-Dtornado.load.annotation.implementation=uk.ac.manchester.tornado.annotation.ASMClassVisitor"; 
-    options[13].optionString = "-Dtornado.load.annotation.parallel=uk.ac.manchester.tornado.api.annotations.Parallel";
-    options[14].optionString = "--upgrade-module-path=/data/TornadoVM/bin/sdk/share/java/graalJars";
-    options[15].optionString = "-Xmx2G";
-    //options[15].optionString = "--upgrade-module-path=/data/psearch/PS-Modules/runtime";
-    options[16].optionString = "-XX:+UseParallelGC";
-    options[17].optionString = "-Dtornado.profiler=False";
-    options[18].optionString = "--add-modules=ALL-SYSTEM,tornado.runtime,tornado.annotation,tornado.drivers.common,tornado.drivers.opencl,unsupervised,gaia.cu7.algo.character.periodsearch";
-    options[19].optionString = "--enable-preview";
-    options[20].optionString = "--enable-native-access=unsupervised";
-    //options[21].optionString = "-XX:-UseCompressedClassPointers";
-
-    for(int i=0; i < N1; i++) {
-        //elog(WARNING,"[DEBUG](JVM options): %s",options[i].optionString);
-        options[21+i].optionString = lines1[i];
-    }
-
-    for(int i=0; i < N2; i++) {
-        options[21+N1+i].optionString = lines2[i];
-    }
- 
-    return options;
+    *numOptions = No;
+    return opts;
 } 
 
 
@@ -478,6 +442,12 @@ int startJVM() {
     vm_args.options = options;
     vm_args.ignoreUnrecognized = JNI_FALSE;
 
+    // Read location of libjvm from GUC
+    char* JVM_SO_FILE = GetConfigOption("ms.libjvm",true,true);
+
+    if(JVM_SO_FILE == NULL) {
+        elog(ERROR,"ms.libjvm GUC pointing to libjvm.so not set");
+    }
 
     void *jvmLibrary = dlopen(JVM_SO_FILE, RTLD_NOW | RTLD_GLOBAL);
 
@@ -485,7 +455,14 @@ int startJVM() {
 
     jint result = JNI_CreateJavaVM(&jvm, (void **)&jenv, &vm_args);
     
-    elog(WARNING,"JVM result: %d",result);
+    elog(NOTICE,"JVM result: %d",result);
+
+    // Free
+    for(int i = 0; i < numOptions; i++) {
+        free(options[i].optionString);
+    }
+    free(options);
+
     return result;
 }
 
