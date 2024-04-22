@@ -1,5 +1,3 @@
 #include "moonshot_worker.h"
 
-worker_data_head *worker_head = NULL;
-
-enum { NS_PER_SECOND = 1000000000 };
+Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, bool globalWorker, char* class_name, char* method_name, char* signature, char* return_type);

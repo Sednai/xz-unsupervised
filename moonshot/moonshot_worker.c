@@ -322,13 +322,10 @@ moonshot_worker_main(Datum main_arg)
 	
 		// Check for exception
 		if( jfr != 0 ) {
-			elog(WARNING,"[DEBUG]: Java exception occured. Code: %d",jfr);
+			elog(WARNING,"Java exception occured. Code: %d",jfr);
 			// Set error msg to true;
 			entry->error = true;
 			jthrowable exh = (*jenv)->ExceptionOccurred(jenv);
-			
-			// Clear exception
-			(*jenv)->ExceptionClear(jenv);
 			
 			if(exh !=0) {
 				jclass Throwable_class = (*jenv)->FindClass(jenv, "java/lang/Throwable");
@@ -339,13 +336,45 @@ moonshot_worker_main(Datum main_arg)
 	
 				const char* msg = (*jenv)->GetStringUTFChars(jenv, jmsg, false);
 			
+				int dlen = 0;
 				strcpy(entry->data,msg);
-			
+				dlen += strlen(msg);
+
 				(*jenv)->ReleaseStringUTFChars(jenv, jmsg, msg);
 				
+				// Get stack trace
+				jmethodID stacktrace_method = (*jenv)->GetMethodID(jenv, Throwable_class, "getStackTrace", "()[Ljava/lang/StackTraceElement;");		
+				jclass ste_class = (*jenv)->FindClass(jenv, "java/lang/StackTraceElement");
+				jmethodID ste_tostring =  (*jenv)->GetMethodID(jenv,ste_class, "toString", "()Ljava/lang/String;");
+				
+			    jobjectArray stacktraces = (*jenv)->CallObjectMethod(jenv, exh, stacktrace_method);
+
+				jsize len = (*jenv)->GetArrayLength(jenv, stacktraces);
+					
+				for(int i = 0; i < len; i++) {
+					jobject tmp =  (*jenv) -> GetObjectArrayElement(jenv,stacktraces, i);
+					// Get trace			
+					jstring tmsg = (jstring)(*jenv)->CallObjectMethod(jenv, tmp, ste_tostring);
+					const char* cmsg = (*jenv)->GetStringUTFChars(jenv, tmsg, false);
+
+					// Copy out
+					entry->data[dlen] = '\n';
+					dlen++;
+					strcpy(&entry->data[dlen],cmsg);
+					dlen += strlen(cmsg);
+					elog(WARNING,"[TEST]: %s, %d",cmsg,dlen);
+				
+					(*jenv)->ReleaseStringUTFChars(jenv, tmsg, cmsg);
+				}
+			
+
 			} else {
 				strcpy(entry->data,"Unknown error occured during java function call");
 			}	
+
+			// Clear exception
+			(*jenv)->ExceptionClear(jenv);
+			
 		} else {
 			// Set error msg to false;
 			entry->error = false;
@@ -380,7 +409,7 @@ moonshot_worker_main(Datum main_arg)
     elog(WARNING, "SIG RECEIVED");	
 }
 
-
+// Note: Code from postgres
 Datum
 datumDeSerialize(char **address, bool *isnull)
 {
@@ -411,7 +440,7 @@ datumDeSerialize(char **address, bool *isnull)
 
     /* Pass-by-reference case; copy indicated number of bytes. */
     Assert(header > 0);
-	elog(WARNING,"[XZDEBUG](datumDeSerialize): %d",header);
+	//elog(WARNING,"[XZDEBUG](datumDeSerialize): %d",header);
 
     d = palloc(header);
     memcpy(d, *address, header);
@@ -444,7 +473,7 @@ datumSerializer(Datum value, bool isnull, bool typByVal, int typLen,
     memcpy(*start_address, &header, sizeof(int));
     *start_address += sizeof(int);
     
-    elog(WARNING,"[XZDEBUG](datumSerialize): size %d",header);
+    //elog(WARNING,"[XZDEBUG](datumSerialize): size %d",header);
 
     /* If not null, write payload bytes. */
     if (!isnull)
@@ -464,7 +493,7 @@ datumSerializer(Datum value, bool isnull, bool typByVal, int typLen,
             memcpy(*start_address, DatumGetPointer(value), header);
             *start_address += header;
             
-            elog(WARNING,"[XZDEBUG](datumSerialize): copied");
+            //elog(WARNING,"[XZDEBUG](datumSerialize): copied");
 
         }
     }
