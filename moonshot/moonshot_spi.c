@@ -19,13 +19,11 @@ float_array_data* FLOAT_ARRAY_CACHE;
 char_array_data* CHAR_ARRAY_CACHE;
 
 int connect_SPI() {
-    elog(WARNING,"SPI connecting");
     if(!activeSPI) {
         return -1;
     }
 
     if(!SPI_connected) {
-        elog(WARNING,"SPI start connection");
     
         SPI_connect();
         

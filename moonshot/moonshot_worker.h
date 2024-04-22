@@ -3,7 +3,7 @@
 
 #define MAX_WORKERS 2
 #define MAX_QUEUE_LENGTH 8
-
+#define MAX_DATA 2097152 
 typedef struct 
 {
     dlist_node node;
@@ -16,7 +16,7 @@ typedef struct
     int n_args;
     int n_return;
     bool error;
-    char data[2*1024*1024];
+    char data[MAX_DATA];
 } worker_exec_entry;
 
 typedef struct
@@ -32,16 +32,6 @@ typedef struct
 } worker_data_head;
 
 
-/*
-typedef struct
-{
-	pg_atomic_uint32    num_active_workers;
-	struct {
-		Latch *latch;
-	} workers[1];
-
-} worker_state_data;
-*/
-
 worker_data_head* launch_dynamic_workers(int n_workers, bool needSPI, bool globalWorker);
 Datum datumDeSerialize(char **address, bool *isnull);
+void prepareErrorMsg(jthrowable exh, char* target, int cutoff);

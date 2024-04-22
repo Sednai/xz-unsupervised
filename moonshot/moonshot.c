@@ -44,75 +44,6 @@ void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
 
 PG_MODULE_MAGIC;
 
-
-/* 
-    SPI
-*/
-/*
-DEPRECATED
-
-double_array_data* fetch_data() {
-    
-
-    SPI_connect();
-    SPIPlanPtr plan = SPI_prepare_cursor("select attrs from lorenzo_v3 limit 100000", 0, NULL, 0);
-    
-    Portal ptl = SPI_cursor_open(NULL, plan, NULL, NULL,true);
-    int total = 0;
-    int proc = 0;
-    
-    struct timespec start, finish, delta;
-    clock_gettime(CLOCK_REALTIME, &start);
-    
-    double* values; 
-    //struct array_data* A = palloc(1*sizeof(struct array_data));
-    double_array_data* A = palloc(1*sizeof(double_array_data));
-
-    do {
-        SPI_cursor_fetch(ptl, true, 100000);
-        proc = SPI_processed; 
-        
-        TupleDesc tupdesc = SPI_tuptable->tupdesc;
-        SPITupleTable *tuptable = SPI_tuptable;
-        for (int j = 0; j < proc; j++)
-        {
-            HeapTuple row = tuptable->vals[j];
-            //Datum datumrow = PointerGetDatum(SPI_returntuple(row, tupdesc) );
-            bool isnull;
-            Datum col = SPI_getbinval(row, tupdesc, 1, &isnull);
-
-            if(~isnull) {
-                ArrayType* arr = DatumGetArrayTypeP(col);  
-                int nElems = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
-                values = (double*) ARR_DATA_PTR(arr);
-
-                A[0].arr = values;
-                A[0].size = nElems;
-            
-            }
-        }
-
-
-        total += proc;
-    } while(proc > 0);
-
-    struct timespec start, finish, delta;
-    clock_gettime(CLOCK_REALTIME, &start);
-    
-	clock_gettime(CLOCK_REALTIME, &finish);
-    sub_timespec(start, finish, &delta);
-	elog(WARNING,"[DEBUG](RT): %d.%.9ld (%d)",(int)delta.tv_sec, delta.tv_nsec, total);
-
-    SPI_cursor_close(ptl);
-    
-    SPI_finish();
-
-	elog(WARNING,"[DEBUG](RT): %d.%.9ld (%d)",(int)delta.tv_sec, delta.tv_nsec, total);
-    
-    return A;
-}
-*/
-
 PG_FUNCTION_INFO_V1(kmeans_gradients_cpu_float);
 Datum
 kmeans_gradients_cpu_float(PG_FUNCTION_ARGS) 
@@ -123,7 +54,7 @@ kmeans_gradients_cpu_float(PG_FUNCTION_ARGS)
     char* signature = "(Ljava/lang/String;Ljava/lang/String;IF[F)Lai/sedn/unsupervised/GradientReturn;";
     char* return_type = "O";
     
-    Datum ret = control_bgworkers(fcinfo, 8, true, false, class_name, method_name, signature, return_type);
+    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, true, false, class_name, method_name, signature, return_type);
 
     PG_RETURN_DATUM( ret );   
 }
@@ -138,108 +69,31 @@ kmeans_gradients_tvm_float(PG_FUNCTION_ARGS)
     char* signature = "(Ljava/lang/String;Ljava/lang/String;IFI[F)Lai/sedn/unsupervised/GradientReturn;";
     char* return_type = "O";
 
-    Datum ret = control_bgworkers(fcinfo, 8, true, false, class_name, method_name, signature, return_type);
+    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, true, false, class_name, method_name, signature, return_type);
 
     PG_RETURN_DATUM( ret );  
 }
 
-
-jvalue PG_text_to_jvalue(text* txt) {
-    jvalue val;
-    int len = VARSIZE_ANY_EXHDR(txt)+1;
-    char t[len];
-    text_to_cstring_buffer(txt, &t, len);
-    val.l = (*jenv)->NewStringUTF(jenv, t);
-
-    return val;
-}
-
-
 /* <- NON BACKGROUND WORKER BASED ! 
-      ( PROBLEM WITH SPI AND BACKGROUND WORKER ON COORDINATOR ! )
+      ( UNKNOWN PROBLEM WITH SPI AND BACKGROUND WORKER ON COORDINATOR ! )
 */
 PG_FUNCTION_INFO_V1(dbscan_batch);
 Datum
 dbscan_batch(PG_FUNCTION_ARGS) 
 {
-    TupleDesc tupdesc; 
-    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("function returning record called in context "
-                            "that cannot accept type record")));
-
-    tupdesc = BlessTupleDesc(tupdesc);
-    int natts = tupdesc->natts;
-    Datum values[natts];
-    bool* nulls = palloc0( natts * sizeof( bool ) );
-   
-    // Start JVM
-    if(jenv == NIL) {
-        startJVM();
-    }
-
     char* class_name = "ai/sedn/unsupervised/DBscan";
     char* method_name = "dbscan_batch_ms";
     char* signature = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFIJI)Lai/sedn/unsupervised/dbscan_batch_ret;";
     char* return_type = "O";
-    
-    // Prep arguments
-    jvalue args[9];
-	
-    args[0] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(0) ));
-    args[1] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(1) ));
-    args[2] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(2) ));
-    args[3] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(3) ));
-    args[4].i = (jint) PG_GETARG_INT32(4);     
-    args[5].f = (jfloat) (float) PG_GETARG_FLOAT8(5);
-    args[6].i = (jint) PG_GETARG_INT32(6);   
-    args[7].j = (jlong) PG_GETARG_INT64(7);     
-    args[8].i = (jint) PG_GETARG_INT32(8);   
 
-    // Call java function
-    bool primitive[natts];
+    Datum ret = control_fgworker(fcinfo, true, class_name, method_name, signature, return_type);
 
-    activeSPI = true;
-    connect_SPI();
-    PushActiveSnapshot(GetTransactionSnapshot());
-
-    int jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args);
-
-    disconnect_SPI();
-    PopActiveSnapshot();
-
-    if( jfr != 0 ) {
-        jthrowable exh = (*jenv)->ExceptionOccurred(jenv);
-			
-        // Clear exception
-        (*jenv)->ExceptionClear(jenv);
-			
-        if(exh !=0) {
-            jclass Throwable_class = (*jenv)->FindClass(jenv, "java/lang/Throwable");
-            jmethodID Throwable_getMessage =  (*jenv)->GetMethodID(jenv,Throwable_class, "getMessage", "()Ljava/lang/String;");
-
-            // Get error msg			
-            jstring jmsg = (jstring)(*jenv)->CallObjectMethod(jenv, exh, Throwable_getMessage);
-	
-            const char* msg = (*jenv)->GetStringUTFChars(jenv, jmsg, false);
-
-            elog(ERROR,"Java exception: %s",msg);
-				
-        } else {
-             elog(ERROR,"Unknown Java exception occured (%d)",jfr);
-        }	
-    }
-
-    HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
-            
-    pfree(nulls);
-    PG_RETURN_DATUM( HeapTupleGetDatum(tuple )); 
+    PG_RETURN_DATUM( ret );   
 }
 
 
 /*
-    Note: Test-wise period search
+    Period search
 */
 PG_FUNCTION_INFO_V1(psearch);
 Datum
@@ -251,7 +105,7 @@ psearch(PG_FUNCTION_ARGS)
     char* signature = "(J[D[D[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
     char* return_type = "O";
 
-    Datum ret = control_bgworkers(fcinfo, 2, false, true, class_name, method_name, signature, return_type);
+    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
 
     PG_RETURN_DATUM( ret );   
 }
@@ -266,7 +120,7 @@ psearch_ms_gpu(PG_FUNCTION_ARGS)
     char* signature = "(J[D[D[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
     char* return_type = "O";
 
-    Datum ret = control_bgworkers(fcinfo, 2, false, true, class_name, method_name, signature, return_type);
+    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
 
     PG_RETURN_DATUM( ret );   
 }
@@ -497,6 +351,183 @@ int argSerializer(char* target, char* signature, Datum* args) {
     return ac;
 }
 
+/*
+    Main function to start fg worker and collect results
+*/
+Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name, char* method_name, char* signature, char* return_type) {
+    
+    TupleDesc tupdesc; 
+    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+            ereport(ERROR,
+                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                    errmsg("function returning record called in context "
+                            "that cannot accept type record")));
+
+    tupdesc = BlessTupleDesc(tupdesc);
+    int natts = tupdesc->natts;
+    Datum values[natts];
+    bool* nulls = palloc0( natts * sizeof( bool ) );
+    
+    // Start JVM
+    if(jenv == NIL) startJVM();
+    
+    // Prep arguments
+    jvalue args[fcinfo->nargs];
+	argToJava(args, signature, fcinfo);
+
+    // Call java function
+    bool primitive[natts];
+
+    activeSPI = need_SPI;
+    if(need_SPI) connect_SPI();
+    PushActiveSnapshot(GetTransactionSnapshot());
+
+    int jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args);
+
+    if(need_SPI) disconnect_SPI();
+    PopActiveSnapshot();
+
+    if( jfr != 0 ) {
+        jthrowable exh = (*jenv)->ExceptionOccurred(jenv);
+			
+        // Clear exception
+        (*jenv)->ExceptionClear(jenv);
+			
+        if(exh !=0) {
+            char msg[2048];
+            prepareErrorMsg(exh, msg, 2048);
+            elog(ERROR,"Java exception: %s",msg);
+
+        } else {
+            elog(ERROR,"Unknown Java exception occured (%d)",jfr);
+        }	
+    }
+
+    HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+            
+    pfree(nulls);
+    PG_RETURN_DATUM( HeapTupleGetDatum(tuple )); 
+}
+
+/*
+    Conversion from PG text to jvalue
+    Move to _jvm ?
+*/
+jvalue PG_text_to_jvalue(text* txt) {
+    jvalue val;
+   
+    int len = VARSIZE_ANY_EXHDR(txt)+1;
+    char t[len];
+   
+    text_to_cstring_buffer(txt, &t, len);
+   
+    val.l = (*jenv)->NewStringUTF(jenv, t);
+   
+    return val;
+}
+
+/*
+    Helper function to convert arguments to jvalues for foreground worker
+*/
+int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
+    bool openrb = false;
+    bool openo = false;
+    bool opensb = false;
+
+    int ac = 0;
+    char buf[256];
+    int pos = 0;
+              
+    // Loop over signature and detect arguments
+    for(int i = 0; i < strlen(signature); i++) {
+        if(signature[i] == '(') {
+            openrb = true;
+            continue;
+        }
+        
+        if(signature[i] == ')') {
+            // Done
+            break;
+        }
+    
+        if(openrb) {
+            // Ready to read arguments
+            if( ( (!openo || !opensb) && (signature[i] == '[' || signature[i] == 'L'))   ) {
+                buf[pos] = signature[i];
+                pos++;
+                if(signature[i]=='[') {
+                    opensb = true;
+                } else {
+                    openo = true;
+                }
+
+                continue;
+            }     
+            
+            if ( openo ) {
+                
+                if(signature[i] != ';') {
+                    // Buffer 
+                    buf[pos] = signature[i];
+                    pos++;
+                } else {
+                    // Serialize object argument
+                    buf[pos] = ';';
+                    buf[pos+1] = '\0';
+
+                    if(strcmp("Ljava/lang/String;",buf) == 0) {
+                        target[ac] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(ac) ));
+                    } else {
+                        elog(ERROR,"%s as argument not implemented yet for foreground Java worker",buf);
+                    }
+                   
+                    ac++;
+                    openo = false;
+                    pos = 0;
+                }
+            } else if ( opensb ) {
+                
+                if(signature[i] == '[') {
+                    // Buffer 
+                    buf[pos] = signature[i];
+                    pos++;
+                } else {
+                    
+                    elog(ERROR,"Arrays as argument not implemented yet for foreground Java worker");
+                    
+                    ac++;
+                    opensb = false;
+                    pos = 0;
+                }
+            } else {   
+                // Convert native argument
+                switch(signature[i]) {
+                    case 'I':
+                        target[ac].i = (jint) PG_GETARG_INT32(ac);  
+                        break;
+                    case 'J':
+                        target[ac].j = (jlong) PG_GETARG_INT64(ac);     
+                        break;
+                    case 'F':
+                        target[ac].f =  (jfloat) (float) PG_GETARG_FLOAT8(ac);
+                        break;
+                    case 'D':
+                        target[ac].d =  (jdouble) PG_GETARG_FLOAT8(ac);
+                        break;
+                    default:
+                        elog(ERROR,"Argument type not implemented yet for foreground Java worker");
+                }
+                ac++;
+            }
+        }
+    }
+
+    // Consistency check
+    if(!openrb || openo || opensb) elog(ERROR,"Inconsistent Java function signature");        
+
+    return ac;
+}
+
 
 PG_FUNCTION_INFO_V1(moonshot_clear_queue);
 Datum
@@ -606,68 +637,3 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
     
     PG_RETURN_INT32(r);
 }
-
-
-/*
-DEPRECATED
-
-PG_FUNCTION_INFO_V1(kmeans);
-
-Datum
-kmeans(PG_FUNCTION_ARGS)
-{
-    
-    // Prep return
-    TupleDesc tupdesc; 
-    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                     errmsg("function returning record called in context "
-                            "that cannot accept type record")));
-  
-    tupdesc = BlessTupleDesc(tupdesc);
-    int natts = tupdesc->natts;
-    Datum values[natts];
-    bool primitive[natts];
-    bool* nulls = palloc0( natts * sizeof( bool ) );
-   
-    // Start JVM
-    if(jenv == NIL) {
-        startJVM();
-    }
-
-    // Prep args
-    jfloat batch_percent = PG_GETARG_FLOAT4(0);
-    ArrayType* v = DatumGetArrayTypeP(PG_GETARG_DATUM(1));
-   
-    jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
-	
-    jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
-    (*jenv)->SetFloatArrayRegion(jenv,floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
-    
-    // Need to get Text -> String
-    
-    // Call function
-    //call_java_function(values, primitive, "ai/sedn/unsupervised/Kmeans", "kmeans_gradients_cpu_float_test", "(F[F)Lai/sedn/unsupervised/GradientReturn;",batch_percent,floatArray);
-
-
-    // Build return tuple
-
-    //Datum values[2];// = palloc(2 * sizeof(Datum));
-    	
-    //values[0] = Int32GetDatum(1);
-    //values[1] = Int32GetDatum(2);
-    
-   
-    HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
-    
-    pfree(nulls);
-
-
-    fetch_data();
-
-    PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
-}
-
-*/
-

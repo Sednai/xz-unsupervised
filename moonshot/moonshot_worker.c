@@ -328,46 +328,7 @@ moonshot_worker_main(Datum main_arg)
 			jthrowable exh = (*jenv)->ExceptionOccurred(jenv);
 			
 			if(exh !=0) {
-				jclass Throwable_class = (*jenv)->FindClass(jenv, "java/lang/Throwable");
-				jmethodID Throwable_getMessage =  (*jenv)->GetMethodID(jenv,Throwable_class, "getMessage", "()Ljava/lang/String;");
-
-				// Get error msg			
-				jstring jmsg = (jstring)(*jenv)->CallObjectMethod(jenv, exh, Throwable_getMessage);
-	
-				const char* msg = (*jenv)->GetStringUTFChars(jenv, jmsg, false);
-			
-				int dlen = 0;
-				strcpy(entry->data,msg);
-				dlen += strlen(msg);
-
-				(*jenv)->ReleaseStringUTFChars(jenv, jmsg, msg);
-				
-				// Get stack trace
-				jmethodID stacktrace_method = (*jenv)->GetMethodID(jenv, Throwable_class, "getStackTrace", "()[Ljava/lang/StackTraceElement;");		
-				jclass ste_class = (*jenv)->FindClass(jenv, "java/lang/StackTraceElement");
-				jmethodID ste_tostring =  (*jenv)->GetMethodID(jenv,ste_class, "toString", "()Ljava/lang/String;");
-				
-			    jobjectArray stacktraces = (*jenv)->CallObjectMethod(jenv, exh, stacktrace_method);
-
-				jsize len = (*jenv)->GetArrayLength(jenv, stacktraces);
-					
-				for(int i = 0; i < len; i++) {
-					jobject tmp =  (*jenv) -> GetObjectArrayElement(jenv,stacktraces, i);
-					// Get trace			
-					jstring tmsg = (jstring)(*jenv)->CallObjectMethod(jenv, tmp, ste_tostring);
-					const char* cmsg = (*jenv)->GetStringUTFChars(jenv, tmsg, false);
-
-					// Copy out
-					entry->data[dlen] = '\n';
-					dlen++;
-					strcpy(&entry->data[dlen],cmsg);
-					dlen += strlen(cmsg);
-					elog(WARNING,"[TEST]: %s, %d",cmsg,dlen);
-				
-					(*jenv)->ReleaseStringUTFChars(jenv, tmsg, cmsg);
-				}
-			
-
+				prepareErrorMsg(exh, &entry->data, MAX_DATA); 
 			} else {
 				strcpy(entry->data,"Unknown error occured during java function call");
 			}	
@@ -407,6 +368,48 @@ moonshot_worker_main(Datum main_arg)
 	}
 
     elog(WARNING, "SIG RECEIVED");	
+}
+
+void prepareErrorMsg(jthrowable exh, char* target, int cutoff) {
+	jclass Throwable_class = (*jenv)->FindClass(jenv, "java/lang/Throwable");
+	jmethodID Throwable_getMessage =  (*jenv)->GetMethodID(jenv,Throwable_class, "getMessage", "()Ljava/lang/String;");
+
+	// Get error msg			
+	jstring jmsg = (jstring)(*jenv)->CallObjectMethod(jenv, exh, Throwable_getMessage);
+
+	const char* msg = (*jenv)->GetStringUTFChars(jenv, jmsg, false);
+
+	strcpy(target,msg);
+	target += strlen(msg);
+
+	(*jenv)->ReleaseStringUTFChars(jenv, jmsg, msg);
+	
+	// Get stack trace
+	jmethodID stacktrace_method = (*jenv)->GetMethodID(jenv, Throwable_class, "getStackTrace", "()[Ljava/lang/StackTraceElement;");		
+	jclass ste_class = (*jenv)->FindClass(jenv, "java/lang/StackTraceElement");
+	jmethodID ste_tostring =  (*jenv)->GetMethodID(jenv,ste_class, "toString", "()Ljava/lang/String;");
+	
+	jobjectArray stacktraces = (*jenv)->CallObjectMethod(jenv, exh, stacktrace_method);
+
+	jsize len = (*jenv)->GetArrayLength(jenv, stacktraces);
+	int c = strlen(msg);	
+	for(int i = 0; i < len; i++) {
+		jobject tmp =  (*jenv) -> GetObjectArrayElement(jenv,stacktraces, i);
+		// Get trace			
+		jstring tmsg = (jstring)(*jenv)->CallObjectMethod(jenv, tmp, ste_tostring);
+		const char* cmsg = (*jenv)->GetStringUTFChars(jenv, tmsg, false);
+
+		// Copy out
+		if( (c+1+strlen(cmsg)) < cutoff) {
+			*target = '\n';
+			target++;
+			strcpy(target,cmsg);
+			target += strlen(cmsg);
+			c += strlen(cmsg);
+
+			(*jenv)->ReleaseStringUTFChars(jenv, tmsg, cmsg);
+		}
+	}
 }
 
 // Note: Code from postgres
