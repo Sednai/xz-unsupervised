@@ -9,6 +9,8 @@
 #include "moonshot_jvm.h"
 #include "utils/guc.h"
 
+#include "utils/tuplestore.h"
+
 JNIEnv *jenv;
 JavaVM *jvm;
 
@@ -108,7 +110,7 @@ ArrayType* create2dArray(jsize dim1, jsize dim2, size_t elemSize, Oid elemType, 
 // Build function hash table instead ?
 Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, char* fieldname, char* sig) {
     jfieldID fid = (*jenv)->GetFieldID(jenv,cls,fieldname,sig);       
-    
+  
     // Natives
     if (strcmp(sig, "I") == 0) {
         *primitive = true;
@@ -199,6 +201,8 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         return -2;
     }
        
+    // Note: Keep non-switch for now for future extension to arrays
+
     if(strcmp(return_type, "J") == 0) {
     
         jlong ret = (*jenv)->CallStaticLongMethodA(jenv, clazz, methodID, args);
@@ -250,7 +254,39 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         values[0] = Float4GetDatum( ret );
     
         return 0;
-    
+
+    /*} 
+        // TO BE DONE ...
+        // Problem for BG worker: limited space in queue package -> Distribute over several
+
+        else if(strcmp(return_type,"ITER") == 0) {
+        
+        jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
+
+        // Catch exception
+        if( (*jenv)->ExceptionCheck(jenv) ) {
+            return 1;
+        }
+
+        // Analyis return
+        jclass cls = (*jenv)->GetObjectClass(jenv, ret);
+        
+        // Iterator
+        jmethodID hasNext = (*jenv)->GetMethodID(jenv, cls, "hasNext", "()Z");
+	    jmethodID next = (*jenv)->GetMethodID(jenv, cls, "next", "()Ljava/lang/Object;");
+
+        if(hasNext == NULL || next == NULL) {
+            // ToDo: CLEAN RETURN WITH ERROR MSG !
+            elog(ERROR,"Object returned is not iterator");
+        }
+
+        bool hasNext = (bool) (*jenv)->CallBooleanMethod(jenv, cls, hasNext);
+ 
+        if(hasNext) {
+            // ToDo: Set function to return one item per call ?        
+        
+        }
+    */    
     }  else {
         jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
      
@@ -262,50 +298,150 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         // Analyis return
         jclass cls = (*jenv)->GetObjectClass(jenv, ret);
 
-        // Map to own function below ? <- Re-use for setof return
-
-        // Cache ret info -> Datum mapping ?
-    
         jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
 
         jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields); 
-        
         
         jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
 
         if(len == 0) {
                 // ToDo: CLEAN RETURN WITH ERROR MSG !
                 elog(ERROR,"Empty composite return not implemented !");
-            } else {
-                // Composite return
-                for(int i = 0; i < len; i++) {
-                    
-                    // Detect field
-                    jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
-                    jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
+        } else {
+            // Composite return
+            for(int i = 0; i < len; i++) {
                 
-                    // Obtain signature
-                    jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
-                    jstring jstr = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
-                
-                    char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
-                
-                    m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
-                    jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
-                    jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
+                // Detect field
+                jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
+                jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
+            
+                // Obtain signature
+                jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
+                jstring jstr = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
+            
+                char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
+            
+                m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
+                jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
+                jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
 
-                    m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
-                    jstr = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-                    char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
-                
-                    char* sig = convert_name_to_JNI_signature(typename);
+                m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
+                jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
+                char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
+            
+                char* sig = convert_name_to_JNI_signature(typename);
 
-                    values[i] = build_datum_from_return_field(&primitive[i], ret, cls, fieldname, sig);
-                }
+                values[i] = build_datum_from_return_field(&primitive[i], ret, cls, fieldname, sig);
+
+                // Cleanup
+                (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+                (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
             }
+        }
     }
 
+    return 0;
+}
+
+/*
+    Call java function with iterator return (ONLY FOR FG WORKER !)
+*/
+int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* class_name, char* method_name, char* signature, jvalue* args) {
+
+    // Prep and call function
+    jclass clazz = (*jenv)->FindClass(jenv, class_name);
+
+    if(clazz == NULL) {
+        elog(WARNING,"Java class %s not found !",class_name);
+        return -1;
+    }
+
+    jmethodID methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
+
+    if(methodID == NULL) {
+        elog(WARNING,"Java method %s with signature %s not found !",method_name, signature);
+        return -2;
+    }
+
+    jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
+
+    // Catch exception
+    if( (*jenv)->ExceptionCheck(jenv) ) {
+        return 1;
+    }
+
+    // Analyis return
+    jclass cls = (*jenv)->GetObjectClass(jenv, ret);
     
+    // Iterator
+    jmethodID hasNextF = (*jenv)->GetMethodID(jenv, cls, "hasNext", "()Z");
+    jmethodID nextF = (*jenv)->GetMethodID(jenv, cls, "next", "()Ljava/lang/Object;");
+
+    if(hasNextF == NULL || nextF == NULL) {
+        // ToDo: CLEAN RETURN WITH ERROR MSG !
+        elog(ERROR,"Object returned is not iterator");
+    }
+    
+    bool hasNext = (bool) (*jenv)->CallBooleanMethod(jenv, ret, hasNextF);
+
+    while(hasNext) {
+        // Get row object        
+        jobject row = (*jenv)->CallObjectMethod(jenv, ret, nextF);
+        jclass rcls = (*jenv)->GetObjectClass(jenv, row);
+        
+        // Prepare row
+        jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv, rcls), "getFields", "()[Ljava/lang/reflect/Field;");
+
+        jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, rcls, getFields); 
+  
+        jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
+        
+        if(len == 0) {
+            // NOTE: NATIVE RETURN 
+        } else {
+            // Composite return
+            
+            Datum values[len];
+            bool*  nulls = palloc0( len * sizeof( bool ) );
+            bool* primitive = palloc0( len * sizeof( bool ) );
+            
+            // Composite return
+            for(int i = 0; i < len; i++) {
+                
+                // Detect field
+                jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
+                jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
+              
+                // Obtain signature
+                jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
+                jstring jstr = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
+            
+                char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
+            
+                m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
+                jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
+                jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
+
+                m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
+                jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
+                char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
+            
+                char* sig = convert_name_to_JNI_signature(typename);
+                values[i] = build_datum_from_return_field(&primitive[i], row, rcls, fieldname, sig);
+
+                // Cleanup
+                (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+                (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
+            }
+            tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+
+            pfree(primitive);
+        }
+
+        // Next
+        hasNext = (bool) (*jenv)->CallBooleanMethod(jenv, ret, hasNextF);
+    }
+
     return 0;
 }
 
@@ -354,6 +490,7 @@ char** readOptions(char* filename, int* N) {
 
     return lines;
 }
+
 
 
 /*

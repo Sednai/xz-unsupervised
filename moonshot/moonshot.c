@@ -100,8 +100,7 @@ Datum
 psearch(PG_FUNCTION_ARGS) 
 {
     char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearch";
-    
+    char* method_name = "DoPeriodSearch"; 
     char* signature = "(J[D[D[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
     char* return_type = "O";
 
@@ -356,18 +355,24 @@ int argSerializer(char* target, char* signature, Datum* args) {
 */
 Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name, char* method_name, char* signature, char* return_type) {
     
-    TupleDesc tupdesc; 
-    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-            ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("function returning record called in context "
-                            "that cannot accept type record")));
-
-    tupdesc = BlessTupleDesc(tupdesc);
-    int natts = tupdesc->natts;
-    Datum values[natts];
-    bool* nulls = palloc0( natts * sizeof( bool ) );
+    ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
     
+    TupleDesc tupdesc; 
+    
+    if(rsinfo == NULL) {
+        tupdesc = BlessTupleDesc(tupdesc);
+    } else {
+        tupdesc = rsinfo->expectedDesc;
+        // ToDo: Check if materialized allowed !
+    }
+
+    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+       ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("function returning record called in context "
+                        "that cannot accept type record")));
+    
+
     // Start JVM
     if(jenv == NIL) startJVM();
     
@@ -376,14 +381,43 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
 	argToJava(args, signature, fcinfo);
 
     // Call java function
-    bool primitive[natts];
-
     activeSPI = need_SPI;
     if(need_SPI) connect_SPI();
     PushActiveSnapshot(GetTransactionSnapshot());
 
-    int jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args);
+    int jfr;
+    if(rsinfo == NULL) {
+        int natts = tupdesc->natts;
+        Datum values[natts];
+        bool* nulls = palloc0( natts * sizeof( bool ) );
+        bool primitive[natts];
 
+        jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args);
+      
+        if(jfr == 0) {     
+            if(need_SPI) disconnect_SPI();
+            PopActiveSnapshot();
+            HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+            pfree(nulls);
+            PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
+        } else {
+            pfree(nulls);
+        }
+    } else {
+    
+        MemoryContext   per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+        MemoryContext   oldcontext    = MemoryContextSwitchTo(per_query_ctx);
+
+        Tuplestorestate *tupstore     = tuplestore_begin_heap(false, false, work_mem);
+        rsinfo->setResult             = tupstore;
+        rsinfo->returnMode            = SFRM_Materialize;
+
+        jfr = call_iter_java_function(tupstore,tupdesc,class_name, method_name, signature, &args);
+
+        tuplestore_donestoring(tupstore);
+        MemoryContextSwitchTo(oldcontext);
+    }
+    
     if(need_SPI) disconnect_SPI();
     PopActiveSnapshot();
 
@@ -403,10 +437,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         }	
     }
 
-    HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
-            
-    pfree(nulls);
-    PG_RETURN_DATUM( HeapTupleGetDatum(tuple )); 
+    PG_RETURN_NULL();
 }
 
 /*
@@ -636,4 +667,55 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
     int r = kill(pid, SIGTERM);
     
     PG_RETURN_INT32(r);
+}
+
+
+/*
+
+    EXPERIMENTAL
+
+*/
+PG_FUNCTION_INFO_V1(rtest);
+Datum
+rtest(PG_FUNCTION_ARGS) {
+   /*
+    ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
+    MemoryContext   per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+    MemoryContext   oldcontext    = MemoryContextSwitchTo(per_query_ctx);
+
+    Tuplestorestate *tupstore     = tuplestore_begin_heap(false, false, work_mem);
+    rsinfo->setResult             = tupstore;
+    rsinfo->returnMode            = SFRM_Materialize;
+
+    TupleDesc   tupdesc = rsinfo->expectedDesc;
+
+    Datum values[1]             = {Int32GetDatum(6)};
+    bool  nulls[sizeof(values)] = {0}; 
+*/
+    // Call java function
+    char* class_name = "ai/sedn/unsupervised/Kmeans";
+    char* method_name = "rtest";
+    char* signature = "()Ljava/util/Iterator;";
+
+    control_fgworker(fcinfo, true, class_name, method_name, signature, "O");
+
+/*
+    // Start JVM
+    if(jenv == NIL) startJVM();    
+    
+    // Prep arguments
+    jvalue args[fcinfo->nargs];
+	argToJava(args, signature, fcinfo);
+    
+    int jfr = call_iter_java_function(tupstore,tupdesc,class_name, method_name, signature, &args);
+
+    int times = 3;
+    while ( times-- ) {
+        tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+    }
+
+    tuplestore_donestoring(tupstore);
+    MemoryContextSwitchTo(oldcontext);
+*/
+    PG_RETURN_NULL();
 }
