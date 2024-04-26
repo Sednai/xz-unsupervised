@@ -124,6 +124,21 @@ psearch_ms_gpu(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM( ret );   
 }
 
+PG_FUNCTION_INFO_V1(psearch_ms_gpu_new);
+Datum
+psearch_ms_gpu_new(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
+    char* method_name = "DoPeriodSearchGPU";
+    
+    char* signature = "([J[[D[[D[[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
+    char* return_type = "O";
+
+    //Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+
+    PG_RETURN_DATUM( ret );   
+}
 /*
     Main function to deliver tasks to bg workers and collect results
 */
@@ -363,48 +378,56 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         tupdesc = BlessTupleDesc(tupdesc);
     } else {
         tupdesc = rsinfo->expectedDesc;
-        // ToDo: Check if materialized allowed !
+        // ToDo: Check if materialized allowed 
     }
 
-    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-       ereport(ERROR,
+    if((get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE) && rsinfo != NULL)
+            ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                errmsg("function returning record called in context "
-                        "that cannot accept type record")));
+                errmsg("function returning set called in context "
+                        "that cannot accept type set")));
     
-
     // Start JVM
     if(jenv == NIL) startJVM();
     
     // Prep arguments
     jvalue args[fcinfo->nargs];
 	argToJava(args, signature, fcinfo);
-
+    
     // Call java function
     activeSPI = need_SPI;
     if(need_SPI) connect_SPI();
     PushActiveSnapshot(GetTransactionSnapshot());
-
+   
     int jfr;
     if(rsinfo == NULL) {
-        int natts = tupdesc->natts;
+        int natts;
+        if(tupdesc != NULL) {
+            natts = tupdesc->natts;
+        } else {
+            natts = 1;
+        }
         Datum values[natts];
         bool* nulls = palloc0( natts * sizeof( bool ) );
         bool primitive[natts];
-
         jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args);
-      
+       
         if(jfr == 0) {     
             if(need_SPI) disconnect_SPI();
             PopActiveSnapshot();
-            HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
-            pfree(nulls);
-            PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
+            if(tupdesc != NULL) {
+                HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
+                pfree(nulls);
+                PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
+            } else {
+                pfree(nulls);
+                PG_RETURN_DATUM( values[0] );
+            }
         } else {
             pfree(nulls);
         }
     } else {
-    
+     
         MemoryContext   per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
         MemoryContext   oldcontext    = MemoryContextSwitchTo(per_query_ctx);
 
@@ -523,8 +546,60 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                     buf[pos] = signature[i];
                     pos++;
                 } else {
-                    
-                    elog(ERROR,"Arrays as argument not implemented yet for foreground Java worker");
+                    switch(signature[i]) {
+                        case 'J':
+                            switch(pos) {
+                                case 1:
+                                    ArrayType* v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );
+                                    if(!ARR_HASNULL(v)) {
+                                        jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+                                        jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
+                                        (*jenv)->SetLongArrayRegion(jenv,longArray, 0, nElems, (jlong*)ARR_DATA_PTR(v));
+                                        target[ac].l = longArray;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
+                                elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
+                            }
+                            break;
+                        case 'D':
+                            ArrayType* v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );       
+                            switch(pos) {
+                                case 1:
+                                    if(!ARR_HASNULL(v)) {
+                                        jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+                                        jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
+                                        (*jenv)->SetDoubleArrayRegion(jenv,doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
+                                        target[ac].l = doubleArray;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
+                                case 2:
+                                    int nc = 0;
+                                    if(!ARR_HASNULL(v)) {
+                                        jclass cls = (*jenv)->FindClass(jenv,"[D");
+                                        jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0], cls, 0);
+                                        
+                                        for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+                                            // Create inner
+                                            jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
+                                            (*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
+                                            nc += ARR_DIMS(v)[1];
+                                            (*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+                                            (*jenv)->DeleteLocalRef(jenv,innerArray);
+                                        }    
+                                        target[ac].l = objectArray;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
+                                elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
+                            }
+                            break;
+                        elog(ERROR,"Array as argument not implemented yet for foreground Java worker");
+                    }
                     
                     ac++;
                     opensb = false;
@@ -675,6 +750,21 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
     EXPERIMENTAL
 
 */
+PG_FUNCTION_INFO_V1(atest);
+Datum
+atest(PG_FUNCTION_ARGS) {
+  
+    // Call java function
+    char* class_name = "ai/sedn/unsupervised/Kmeans";
+    char* method_name = "atest";
+    char* signature = "([[D)I";
+    elog(NOTICE,"A");
+    control_fgworker(fcinfo, false, class_name, method_name, signature, "I");
+    elog(NOTICE,"B");
+   
+    PG_RETURN_INT32(0);
+}
+
 PG_FUNCTION_INFO_V1(rtest);
 Datum
 rtest(PG_FUNCTION_ARGS) {

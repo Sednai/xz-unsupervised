@@ -36,8 +36,10 @@ char* convert_name_to_JNI_signature(char* name) {
         return name;
     } else if (strcmp(name, "[D") == 0) {
         return name;
+    } else if (strcmp(name, "[[D") == 0) {
+        return name;
     }
-
+    
     elog(ERROR,"Unsupported Java type: %s",name);
     return NULL;
 }
@@ -176,8 +178,27 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
 		}
      
        return PointerGetDatum(v);
-    }
+    } else if (strcmp(sig, "[[D") == 0) {
+        *primitive = false;
+        jarray arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+        int nElems = (*jenv)->GetArrayLength(jenv, arr); 
+      
+        jdoubleArray arr0 = (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
+        jsize dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+ 
+		ArrayType* v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT8OID, false);
 
+		// Copy first dim
+		(*jenv)->GetDoubleArrayRegion(jenv, arr0, 0, dim2, (jdouble*)ARR_DATA_PTR(v));
+		 
+        // Copy remaining
+		for(int i = 1; i < nElems; i++) {
+			jdoubleArray els =  (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+			(*jenv)->GetDoubleArrayRegion(jenv, els, 0, dim2,  (jdouble*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jdouble)) );
+		}
+     
+       return PointerGetDatum(v);
+    }
     
     elog(ERROR,"Unsupported Java signature: %s",sig);
     return NULL;
@@ -217,9 +238,8 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         return 0;
 
     } else if(strcmp(return_type, "I") == 0) {
-    
         jint ret = (*jenv)->CallStaticIntMethodA(jenv, clazz, methodID, args);
-        
+      
         // Catch exception
         if( (*jenv)->ExceptionCheck(jenv) ) {
             return 1;
@@ -567,7 +587,7 @@ JavaVMOption* setJVMoptions(int* numOptions) {
 
 int startJVM() {
 
-    elog(WARNING,"Starting JVM");
+    elog(NOTICE,"Starting JVM");
     
     int numOptions;
     JavaVMOption *options = setJVMoptions(&numOptions);

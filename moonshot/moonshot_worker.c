@@ -255,7 +255,7 @@ moonshot_worker_main(Datum main_arg)
 
 			char* T = pos;
 		 	pos += strlen(T)+1;
-			elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
+			//elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
 
 			bool isnull;
 			Datum arg = datumDeSerialize(&pos, &isnull);
@@ -275,6 +275,18 @@ moonshot_worker_main(Datum main_arg)
 			}
 
 			// Arrays
+			else if(strcmp(T, "[J") == 0) {
+				ArrayType* v = DatumGetArrayTypeP(arg);
+				if(!ARR_HASNULL(v)) {
+					jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+					jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
+					(*jenv)->SetLongArrayRegion(jenv,longArray, 0, nElems, (jlong*)ARR_DATA_PTR(v));
+					val.l = longArray;
+				} else {
+					// Copy element by element 
+					//...
+				}
+			}
 			else if(strcmp(T, "[F") == 0) {
 				ArrayType* v = DatumGetArrayTypeP(arg);
 				if(!ARR_HASNULL(v)) {
@@ -288,6 +300,9 @@ moonshot_worker_main(Datum main_arg)
 
 				}
 			}
+			else if(strcmp(T, "[[F") == 0) {
+				// ToDo 
+			}
 			else if(strcmp(T, "[D") == 0) {
 				ArrayType* v = DatumGetArrayTypeP(arg);
 				if(!ARR_HASNULL(v)) {
@@ -298,8 +313,31 @@ moonshot_worker_main(Datum main_arg)
 				} else {
 					// Copy element by element 
 					//...
-
 				}
+			}
+			else if(strcmp(T, "[[D") == 0) {
+				ArrayType* v = DatumGetArrayTypeP(arg);
+				int nc = 0;
+				if(!ARR_HASNULL(v)) {
+					jclass cls = (*jenv)->FindClass(jenv,"[D");
+					jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0],cls,0);
+					
+					for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+						// Create inner
+						jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
+						(*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
+						nc += ARR_DIMS(v)[1];
+						(*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+						(*jenv)->DeleteLocalRef(jenv,innerArray);
+					}
+					
+					val.l = objectArray;
+
+				} else {
+					// Copy element by element 
+					//...
+				}
+				
 			}
 			// Other objects
 			else if(strcmp(T, "Ljava/lang/String;") == 0) {
