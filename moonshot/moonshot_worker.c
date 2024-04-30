@@ -196,8 +196,12 @@ moonshot_worker_main(Datum main_arg)
 	}
 
     // Start JVM
-    startJVM();
-   	
+	char error_msg[128];
+    int jc = startJVM(error_msg);
+   	if(jc < 0) {
+		elog(ERROR,"%s",error_msg);
+	}
+
 	elog(LOG, "%s initialized",buf);
 		
 	/*
@@ -356,10 +360,10 @@ moonshot_worker_main(Datum main_arg)
 		
 		elog(WARNING,"[DEBUG]: Calling java function %s->%s",entry->class_name,entry->method_name);
 			
-		int jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args);
+		int jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args, entry->data);
 	
 		// Check for exception
-		if( jfr != 0 ) {
+		if( jfr > 0 ) {
 			elog(WARNING,"Java exception occured. Code: %d",jfr);
 			// Set error msg to true;
 			entry->error = true;
@@ -372,8 +376,10 @@ moonshot_worker_main(Datum main_arg)
 			}	
 
 			// Clear exception
-			(*jenv)->ExceptionClear(jenv);
-			
+			(*jenv)->ExceptionClear(jenv);	
+		} else if(jfr < 0) {
+			// Activate error messaging (supplied via data)
+			entry->error = true;
 		} else {
 			// Set error msg to false;
 			entry->error = false;

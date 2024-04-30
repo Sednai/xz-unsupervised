@@ -14,33 +14,40 @@
 JNIEnv *jenv;
 JavaVM *jvm;
 
-//Use PG hashtable instead ?!
-char* convert_name_to_JNI_signature(char* name) {
-   
-    // Native
-    if (strcmp(name, "int") == 0) {
-        return "I";
-    } else if (strcmp(name, "double") == 0) {
-        return "D";
-    } else if (strcmp(name, "float") == 0) {
-        return "F";
-    } else if (strcmp(name, "long") == 0) {
-        return "J";
-    }
+char* convert_name_to_JNI_signature(char* name, char* error_msg) {
     // Arrays
-    else if (strcmp(name, "[F") == 0) {
-        return name;
-    } else if (strcmp(name, "[[F") == 0) {
-        return name;
-    } else if (strcmp(name, "[I") == 0) {
-        return name;
-    } else if (strcmp(name, "[D") == 0) {
-        return name;
-    } else if (strcmp(name, "[[D") == 0) {
-        return name;
+    if(name[0] == '[') {
+        if(name[1] != '[') {
+            switch(name[1]) {
+                case 'I':
+                    return name;
+                case 'F':
+                    return name;
+                case 'D':
+                    return name;
+            }
+        } else {
+            switch(name[2]) {
+                case 'F':
+                    return name;
+                case 'D':
+                    return name;
+            }
+        }
+    } else {
+        // Natives
+        if (strcmp(name, "int") == 0) {
+            return "I";
+        } else if (strcmp(name, "double") == 0) {
+            return "D";
+        } else if (strcmp(name, "float") == 0) {
+            return "F";
+        } else if (strcmp(name, "long") == 0) {
+            return "J";
+        }
     }
     
-    elog(ERROR,"Unsupported Java type: %s",name);
+    snprintf(error_msg, 128, "Unsupported Java type: %s",name);
     return NULL;
 }
 
@@ -109,116 +116,156 @@ ArrayType* create2dArray(jsize dim1, jsize dim2, size_t elemSize, Oid elemType, 
 	return v;
 }
 
-// Build function hash table instead ?
-Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, char* fieldname, char* sig) {
+int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* sig) {
+                                
+    if(sig[0] != '[') {
+        // Natives
+        switch(sig[0]) {
+            case 'I':       
+               (*jenv)->SetIntField(jenv, *obj , *fid, DatumGetInt32( *dat ) );
+                return 0;
+            case 'J':       
+                (*jenv)->SetLongField(jenv, *obj , *fid, DatumGetInt64( *dat ) );
+                return 0;
+        }
+    } else {
+        if(sig[1] != '[') {
+            // 1D arrays
+            switch(sig[1]) {
+                case 'D':
+                    ArrayType* v = DatumGetArrayTypeP( *dat );
+                    if(!ARR_HASNULL(v)) {
+                        jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+                        jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
+                        (*jenv)->SetDoubleArrayRegion(jenv, doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
+                        (*jenv)->SetObjectField(jenv, *obj ,*fid, doubleArray );
+                        return 0;
+                    } else {
+                        // Copy element by element 
+                        //...
+                    }
+            }
+        }
+    }
+
+    elog(ERROR,"Datum can not be converted to Java object (%s)",sig);
+    return -1;
+}
+
+Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, char* fieldname, char* sig, char* error_msg) {
     jfieldID fid = (*jenv)->GetFieldID(jenv,cls,fieldname,sig);       
   
-    // Natives
-    if (strcmp(sig, "I") == 0) {
+    if(sig[0] != '[') {
+        // Natives
         *primitive = true;
-        return Int32GetDatum(  (*jenv)->GetIntField(jenv,data,fid) );
-    } else if (strcmp(sig, "D") == 0) {
-        *primitive = true;
-        return Float8GetDatum(  (*jenv)->GetDoubleField(jenv,data,fid) );
-    } else if (strcmp(sig, "F") == 0) {
-        *primitive = true;
-        jfloat test = (*jenv)->GetFloatField(jenv,data,fid);
-        return Float4GetDatum(  (*jenv)->GetFloatField(jenv,data,fid) );
-    } else if (strcmp(sig, "J") == 0) {
-        *primitive = true;
-        jfloat test = (*jenv)->GetLongField(jenv,data,fid);
-        return Int64GetDatum(  (*jenv)->GetLongField(jenv,data,fid) );
+        switch(sig[0]) {
+            case 'I':
+                return Int32GetDatum(  (*jenv)->GetIntField(jenv,data,fid) );
+            case 'J':
+                return Int64GetDatum(  (*jenv)->GetLongField(jenv,data,fid) );
+            case 'F':
+                return Float4GetDatum(  (*jenv)->GetFloatField(jenv,data,fid) );
+            case 'D':
+                return Float8GetDatum(  (*jenv)->GetDoubleField(jenv,data,fid) );
+        }
+    } else {
+        // Native arrays
+        *primitive = false;
+        if(sig[1] != '[') {
+            switch(sig[1]) {
+                jarray arr;
+                int nElems;
+                ArrayType* v;
+                case 'I':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                    v = createArray(nElems, sizeof(jint), INT4OID, false);
+                    (*jenv)->GetIntArrayRegion(jenv,arr, 0, nElems, (jint*)ARR_DATA_PTR(v));
+                    return PointerGetDatum(v);
+                case 'F':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                    v = createArray(nElems, sizeof(jfloat), FLOAT4OID, false);
+                    (*jenv)->GetFloatArrayRegion(jenv,arr, 0, nElems, (jfloat*)ARR_DATA_PTR(v));
+                    return PointerGetDatum(v); 
+                case 'D': 
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                    v = createArray(nElems, sizeof(jdouble), FLOAT8OID, false);
+                    (*jenv)->GetDoubleArrayRegion(jenv,arr, 0, nElems, (jdouble*)ARR_DATA_PTR(v));
+                    return PointerGetDatum(v); 
+            }
+        } else {
+            switch(sig[2]) {
+                jarray arr;
+                int nElems;
+                jarray arr0;
+                jsize dim2;
+                ArrayType* v;
+                case 'F':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                
+                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
+                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+            
+                    v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT4OID, false);
+
+                    // Copy first dim
+                    (*jenv)->GetFloatArrayRegion(jenv, arr0, 0, dim2, (jfloat*)ARR_DATA_PTR(v));
+                    
+                    // Copy remaining
+                    for(int i = 1; i < nElems; i++) {
+                        jfloatArray els =  (jfloatArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                        (*jenv)->GetFloatArrayRegion(jenv, els, 0, dim2,  (jfloat*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jfloat)) );
+                    }
+                
+                    return PointerGetDatum(v);
+                case 'D':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                
+                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
+                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+            
+                    v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT8OID, false);
+
+                    // Copy first dim
+                    (*jenv)->GetDoubleArrayRegion(jenv, arr0, 0, dim2, (jdouble*)ARR_DATA_PTR(v));
+                    
+                    // Copy remaining
+                    for(int i = 1; i < nElems; i++) {
+                        jdoubleArray els =  (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                        (*jenv)->GetDoubleArrayRegion(jenv, els, 0, dim2,  (jdouble*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jdouble)) );
+                    }
+                    
+                    return PointerGetDatum(v);
+            }
+        }
+
     }
 
-    // Native arrays
-    else if (strcmp(sig, "[F") == 0) {
-        *primitive = false;
-        jfloatArray arr = (jfloatArray) (*jenv)->GetObjectField(jenv,data,fid);
-        int nElems = (*jenv)->GetArrayLength(jenv, arr); 
-        ArrayType* v = createArray(nElems, sizeof(jfloat), FLOAT4OID, false);
-		(*jenv)->GetFloatArrayRegion(jenv,arr, 0, nElems, (jfloat*)ARR_DATA_PTR(v));
-
-        return PointerGetDatum(v); 
-    
-    } else if (strcmp(sig, "[D") == 0) {
-        *primitive = false;
-        jdoubleArray arr = (jdoubleArray) (*jenv)->GetObjectField(jenv,data,fid);
-        int nElems = (*jenv)->GetArrayLength(jenv, arr); 
-        ArrayType* v = createArray(nElems, sizeof(jdouble), FLOAT8OID, false);
-		(*jenv)->GetDoubleArrayRegion(jenv,arr, 0, nElems, (jdouble*)ARR_DATA_PTR(v));
-
-        return PointerGetDatum(v); 
-
-    } else if (strcmp(sig, "[I") == 0) {
-        *primitive = false;
-        jarray arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-        int nElems = (*jenv)->GetArrayLength(jenv, arr); 
-        ArrayType* v = createArray(nElems, sizeof(jint), INT4OID, false);
-		(*jenv)->GetIntArrayRegion(jenv,arr, 0, nElems, (jint*)ARR_DATA_PTR(v));
-
-        return PointerGetDatum(v);
-
-    }  else if (strcmp(sig, "[[F") == 0) {
-        *primitive = false;
-        jarray arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-        int nElems = (*jenv)->GetArrayLength(jenv, arr); 
-      
-        jfloatArray arr0 = (jfloatArray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-        jsize dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
- 
-		ArrayType* v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT4OID, false);
-
-		// Copy first dim
-		(*jenv)->GetFloatArrayRegion(jenv, arr0, 0, dim2, (jfloat*)ARR_DATA_PTR(v));
-		 
-        // Copy remaining
-		for(int i = 1; i < nElems; i++) {
-			jfloatArray els =  (jfloatArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
-			(*jenv)->GetFloatArrayRegion(jenv, els, 0, dim2,  (jfloat*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jfloat)) );
-		}
-     
-       return PointerGetDatum(v);
-    } else if (strcmp(sig, "[[D") == 0) {
-        *primitive = false;
-        jarray arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-        int nElems = (*jenv)->GetArrayLength(jenv, arr); 
-      
-        jdoubleArray arr0 = (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-        jsize dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
- 
-		ArrayType* v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT8OID, false);
-
-		// Copy first dim
-		(*jenv)->GetDoubleArrayRegion(jenv, arr0, 0, dim2, (jdouble*)ARR_DATA_PTR(v));
-		 
-        // Copy remaining
-		for(int i = 1; i < nElems; i++) {
-			jdoubleArray els =  (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
-			(*jenv)->GetDoubleArrayRegion(jenv, els, 0, dim2,  (jdouble*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jdouble)) );
-		}
-     
-       return PointerGetDatum(v);
-    }
-    
-    elog(ERROR,"Unsupported Java signature: %s",sig);
+    snprintf(error_msg, 256, "Unsupported Java signature %s in composite return",sig);
     return NULL;
 }
 
 // ToDo: Iterator / setof multi-row return
-int call_java_function(Datum* values, bool* primitive, char* class_name, char* method_name, char* signature, char* return_type, jvalue* args) {
+int call_java_function(Datum* values, bool* primitive, char* class_name, char* method_name, char* signature, char* return_type, jvalue* args, char* error_msg) {
 
     // Prep and call function
     jclass clazz = (*jenv)->FindClass(jenv, class_name);
 
     if(clazz == NULL) {
         elog(WARNING,"Java class %s not found !",class_name);
+        snprintf(error_msg, 128, "Java class %s not found", class_name);
         return -1;
     }
 
     jmethodID methodID = (*jenv)->GetStaticMethodID(jenv, clazz, method_name, signature);
 
     if(methodID == NULL) {
-        elog(WARNING,"Java method %s with signature %s not found !",method_name, signature);
+        elog(WARNING,"Java method %s with signature %s not found",method_name, signature);
+        snprintf(error_msg, 128, "Java method %s with signature %s not found",method_name, signature);
         return -2;
     }
        
@@ -314,8 +361,14 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         if( (*jenv)->ExceptionCheck(jenv) ) {
             return 1;
         }
-           
+        
+        if(ret == NULL) {
+            strcpy(error_msg,"Null pointer returned from java function call");
+            return -3;
+        }
+
         // Analyis return
+        // ToDo: Move into helper function
         jclass cls = (*jenv)->GetObjectClass(jenv, ret);
 
         jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
@@ -325,12 +378,14 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
 
         if(len == 0) {
-                // ToDo: CLEAN RETURN WITH ERROR MSG !
-                elog(ERROR,"Empty composite return not implemented !");
+                strcpy(error_msg,"Empty composite return");
+                return -4;
         } else {
             // Composite return
             for(int i = 0; i < len; i++) {
                 
+                // ToDo: Move into helper function ?
+
                 // Detect field
                 jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
                 jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
@@ -349,9 +404,21 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
                 jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
                 char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
             
-                char* sig = convert_name_to_JNI_signature(typename);
+                char* sig = convert_name_to_JNI_signature(typename, error_msg);
+                if(sig == NULL) {
+                    // Cleanup
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
+                    return -4;
+                }
 
-                values[i] = build_datum_from_return_field(&primitive[i], ret, cls, fieldname, sig);
+                values[i] = build_datum_from_return_field(&primitive[i], ret, cls, fieldname, sig, error_msg);
+                if(values == NULL) {
+                    // Cleanup
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
+                    return -5;
+                }
 
                 // Cleanup
                 (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
@@ -366,13 +433,14 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
 /*
     Call java function with iterator return (ONLY FOR FG WORKER !)
 */
-int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* class_name, char* method_name, char* signature, jvalue* args) {
+int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* class_name, char* method_name, char* signature, jvalue* args, char* error_msg) {
 
     // Prep and call function
     jclass clazz = (*jenv)->FindClass(jenv, class_name);
 
     if(clazz == NULL) {
         elog(WARNING,"Java class %s not found !",class_name);
+        snprintf(error_msg, 128, "Java class %s not found", class_name);
         return -1;
     }
 
@@ -380,6 +448,7 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
 
     if(methodID == NULL) {
         elog(WARNING,"Java method %s with signature %s not found !",method_name, signature);
+        snprintf(error_msg, 128, "Java method %s with signature %s not found",method_name, signature);
         return -2;
     }
 
@@ -398,8 +467,8 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
     jmethodID nextF = (*jenv)->GetMethodID(jenv, cls, "next", "()Ljava/lang/Object;");
 
     if(hasNextF == NULL || nextF == NULL) {
-        // ToDo: CLEAN RETURN WITH ERROR MSG !
-        elog(ERROR,"Object returned is not iterator");
+        strcpy(error_msg,"Java object returned is not an iterator");
+        return -6;
     }
     
     bool hasNext = (bool) (*jenv)->CallBooleanMethod(jenv, ret, hasNextF);
@@ -446,8 +515,22 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
                 jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
                 char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
             
-                char* sig = convert_name_to_JNI_signature(typename);
-                values[i] = build_datum_from_return_field(&primitive[i], row, rcls, fieldname, sig);
+                char* sig = convert_name_to_JNI_signature(typename, error_msg);
+                if(sig == NULL) {
+                    // Cleanup
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
+                
+                    return -4;
+                }
+
+                values[i] = build_datum_from_return_field(&primitive[i], row, rcls, fieldname, sig, error_msg);
+                if(values == NULL) {
+                    // Cleanup
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+                    (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
+                    return -5;
+                }
 
                 // Cleanup
                 (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
@@ -584,8 +667,10 @@ JavaVMOption* setJVMoptions(int* numOptions) {
     return opts;
 } 
 
-
-int startJVM() {
+/*
+    Java virtual machine startup
+*/
+int startJVM(char* error_msg) {
 
     elog(NOTICE,"Starting JVM");
     
@@ -603,7 +688,8 @@ int startJVM() {
     char* JVM_SO_FILE = GetConfigOption("ms.libjvm",true,true);
 
     if(JVM_SO_FILE == NULL) {
-        elog(ERROR,"ms.libjvm GUC pointing to libjvm.so not set");
+        strcpy(error_msg,"ms.libjvm GUC pointing to libjvm.so not set");
+        return -1;
     }
 
     void *jvmLibrary = dlopen(JVM_SO_FILE, RTLD_NOW | RTLD_GLOBAL);
@@ -612,6 +698,10 @@ int startJVM() {
 
     jint result = JNI_CreateJavaVM(&jvm, (void **)&jenv, &vm_args);
     
+    if(result < 0) {
+        snprintf(error_msg, 14, "JVM error %d",result);
+    }
+
     elog(NOTICE,"JVM result: %d",result);
 
     // Free
