@@ -332,7 +332,6 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 				char t[len];
 				text_to_cstring_buffer(txt, &t, len);
 				val.l = (*jenv)->NewStringUTF(jenv, t);
-				break;
 			} else {
 				
 				// Map composite type

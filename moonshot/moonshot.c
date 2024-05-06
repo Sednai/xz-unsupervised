@@ -23,7 +23,6 @@
 #include "pgstat.h"
 #include "ctype.h"
 
-//#include <executor/executor.h>
 #include <utils/typcache.h>
 
 worker_data_head *worker_head = NULL;
@@ -335,7 +334,7 @@ int argSerializer(char* target, char* signature, Datum* args) {
     bool opensb = false;
 
     int ac = 0;
-
+    char* spos;
     // Loop over signature and detect arguments
     for(int i = 0; i < strlen(signature); i++) {
         if(signature[i] == '(') {
@@ -359,6 +358,7 @@ int argSerializer(char* target, char* signature, Datum* args) {
                     opensb = true;
                 } else {
                     openo = true;
+                    spos = target-1;
                 }
 
                 continue;
@@ -367,7 +367,7 @@ int argSerializer(char* target, char* signature, Datum* args) {
             if ( openo ) {
                 
                 if(signature[i] != ';') {
-                    // Buffer 
+                    // Buffer
                     *target = signature[i];
                     target++;
                 } else {
@@ -375,8 +375,8 @@ int argSerializer(char* target, char* signature, Datum* args) {
                     target[0] = signature[i];
                     target[1] = '\0';
                     target+=2;
-
-                    if(strcmp("Ljava/lang/String;",signature) == 0) {
+                    
+                    if(strcmp("Ljava/lang/String;",spos) == 0) {
                         // String
                         datumSerialize(args[ac], false, false, -1, &target);
                     } else {
@@ -421,11 +421,16 @@ int argSerializer(char* target, char* signature, Datum* args) {
                         if(signature[i] == '[') {
                             elog(ERROR,"2d arrays as input to bg worker not supported yet");
                         } else if(signature[i] == 'L') {
-                            if(strcmp("Ljava/lang/String;",signature) == 0) {
+
+
+                            if(strcmp("Ljava/lang/String;",signature+i) == 0) {
+                                // compare is broken: Fix as above
                                 elog(ERROR,"Array of strings as input to bg worker not supported yet");
                             } else {
                                 // Array of Composite
-                                
+
+                                // ToDo: Move up full signature read ...
+
                                 // Read full signature
                                 target[0] = signature[i];
                                 target++;
