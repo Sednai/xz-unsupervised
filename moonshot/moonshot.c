@@ -1,5 +1,5 @@
-#include "pg_config.h"
-#include "pg_config_manual.h"
+//#include "pg_config.h"
+//#include "pg_config_manual.h"
 
 #include "postgres.h"
 #include "fmgr.h"
@@ -13,6 +13,7 @@
 #include "catalog/pg_type.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
+#include "utils/syscache.h"
 
 #include "moonshot.h"
 #include "moonshot_jvm.h"
@@ -20,6 +21,10 @@
 
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "ctype.h"
+
+//#include <executor/executor.h>
+#include <utils/typcache.h>
 
 worker_data_head *worker_head = NULL;
 
@@ -139,7 +144,36 @@ psearch_ms_gpu_new(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM( ret );   
 }
 
-// Add new function for [LObject; call 
+PG_FUNCTION_INFO_V1(psearch_ms_gpu_new_comp);
+Datum
+psearch_ms_gpu_new_comp(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
+    char* method_name = "DoPeriodSearchGPU";
+    
+    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
+    char* return_type = "O";
+
+    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
+    //Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+    
+    PG_RETURN_DATUM( ret );   
+}
+
+PG_FUNCTION_INFO_V1(psearch_ms_gpu_new_comp_fg);
+Datum
+psearch_ms_gpu_new_comp_fg(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
+    char* method_name = "DoPeriodSearchGPU";
+    
+    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
+    char* return_type = "O";
+
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+    
+    PG_RETURN_DATUM( ret );   
+}
 
 /*
     Main function to deliver tasks to bg workers and collect results
@@ -153,15 +187,26 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
     } 
 
     // Prepare return tuple
+    ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
+    
     TupleDesc tupdesc; 
-    if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+    int rtype = get_call_result_type(fcinfo, NULL, &tupdesc);
+    
+    if(rsinfo != NULL)
             ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("function returning record called in context "
-                            "that cannot accept type record")));
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("function returning set called in context "
+                        "that cannot accept type set")));
+    
+    int natts;
+    if(rtype == TYPEFUNC_COMPOSITE) {
+        tupdesc = BlessTupleDesc(tupdesc);
+        natts = tupdesc->natts;
+    } else {
+        tupdesc = NULL; 
+        natts = 1;
+    }
 
-    tupdesc = BlessTupleDesc(tupdesc);
-    int natts = tupdesc->natts;
     Datum values[natts];
     bool* nulls = palloc0( natts * sizeof( bool ) );
     
@@ -182,7 +227,7 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
         entry->notify_latch = MyLatch;
         
         entry->n_args = argSerializer(entry->data, signature, &fcinfo->arg );
-    
+       
         // Push
         dlist_push_tail(&worker_head->exec_list,&entry->node);
     
@@ -261,11 +306,14 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
                 dlist_push_tail(&worker_head->free_list,entry);           
                 SpinLockRelease(&worker_head->lock);              
 
-                HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
-            
-                pfree(nulls);
-                
-                PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));    
+                if(tupdesc != NULL) {
+                    HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);             
+                    pfree(nulls);
+                    PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));    
+                } else {
+                    pfree(nulls);
+                    PG_RETURN_DATUM( values[0] );
+                }
             }
         }
 
@@ -302,7 +350,7 @@ int argSerializer(char* target, char* signature, Datum* args) {
     
         if(openrb) {
             // Ready to read arguments
-            if( ( (!openo || !opensb) && (signature[i] == '[' || signature[i] == 'L'))   ) {
+            if( ( (!openo && !opensb) && (signature[i] == '[' || signature[i] == 'L'))   ) {
                 // Buffer 
                 *target = signature[i];
                 target++;
@@ -327,7 +375,31 @@ int argSerializer(char* target, char* signature, Datum* args) {
                     target[0] = signature[i];
                     target[1] = '\0';
                     target+=2;
-                    datumSerialize(args[ac], false, false, -1, &target);
+
+                    if(strcmp("Ljava/lang/String;",signature) == 0) {
+                        // String
+                        datumSerialize(args[ac], false, false, -1, &target);
+                    } else {
+                        // Composite type  
+                        HeapTupleHeader t = DatumGetHeapTupleHeader(args[ac]);
+
+                        // Serialize each composite object one-by-one
+                        int16 Na = (int16) HeapTupleHeaderGetNatts( t );
+                        
+                        Datum attr[Na];
+                        bool isnull[Na];
+                        bool passbyval[Na];
+                        GetNAttributes(t, Na, attr, isnull, passbyval) ;
+
+                        for(int a = 0; a < Na; a++) {  
+                            if(isnull[a]) {
+                                elog(ERROR,"Attribute %d of composite type is null",a); 
+                            } else {
+                                datumSerialize(attr[a], false, passbyval[a], -1, &target); // getTupleBassBy slow !
+                            } 
+                        }
+        
+                    }
                     ac++;
                     openo = false;
                 }
@@ -339,12 +411,91 @@ int argSerializer(char* target, char* signature, Datum* args) {
                     target++;
                 } else {
                     // ToDo: Check if supported
+                    if(signature[i] != 'L') {
+                        // Serialize native array
+                        target[0] = signature[i];
+                        target[1] = '\0';
+                        target+=2;
+                        datumSerialize(args[ac], false, false, -1, &target);
+                    } else {
+                        if(signature[i] == '[') {
+                            elog(ERROR,"2d arrays as input to bg worker not supported yet");
+                        } else if(signature[i] == 'L') {
+                            if(strcmp("Ljava/lang/String;",signature) == 0) {
+                                elog(ERROR,"Array of strings as input to bg worker not supported yet");
+                            } else {
+                                // Array of Composite
+                                
+                                // Read full signature
+                                target[0] = signature[i];
+                                target++;
+                               
+                                while(signature[i] != ';' && i < strlen(signature)) {
+                                    i++;
+                                    target[0] = signature[i];
+                                    target++;
+                                }  
+                                target[0] = '\0';
+                                target++;
+                                
+                                // Get array
+                                ArrayType *v = DatumGetArrayTypeP(args[ac]);
+                                Oid elemType = ARR_ELEMTYPE(v);
+                                Datum  *datums;
+                                bool   *nulls;
+                                int     N;
+                                int16   elemWidth;
+                                bool    elemTypeByVal, isNull;
+                                char    elemAlignmentCode;
+                                                            
+                                get_typlenbyvalalign(elemType, &elemWidth, &elemTypeByVal, &elemAlignmentCode);
+                                deconstruct_array(v, elemType, elemWidth, elemTypeByVal, elemAlignmentCode, &datums, &nulls, &N);
 
-                    // Serialize array argument
-                    target[0] = signature[i];
-                    target[1] = '\0';
-                    target+=2;
-                    datumSerialize(args[ac], false, false, -1, &target);
+                                // Serialize array size (4 byte)
+                                int* tmp = (int*)(target);
+                                tmp[0] = N;
+                                target+=4;
+    
+                                // Serialize all array elements
+                                for(int n = 0; n < N; n++) {
+                                    // Prepare elements
+    
+                                    HeapTupleHeader t = DatumGetHeapTupleHeader(datums[n]);
+                                  
+                                  /*
+                                     // TEST
+                                    TupleDesc td = lookup_rowtype_tupdesc( HeapTupleHeaderGetTypeId(t), -1);
+                                    elog(WARNING, "A");
+                                    td = CreateTupleDescCopyConstr(td);
+                                    elog(WARNING, "B");
+                                    
+                                    elog(WARNING, "N: %d",td->natts);
+
+                                    ReleaseTupleDesc(td);                                  
+                                    */
+
+                                    // Serialize each composite object one-by-one
+                                    int16 Na = (int16) HeapTupleHeaderGetNatts( t );
+                                    
+                                    Datum attr[Na];
+                                    bool isnull[Na];
+                                    bool passbyval[Na];
+                                    GetNAttributes(t, Na, attr, isnull, passbyval);
+
+                                    for(int a = 0; a < Na; a++) {  
+                                        if(isnull[a]) {
+                                            elog(ERROR,"Attribute %d of composite type is null",a); 
+                                        } else {
+                                            datumSerialize(attr[a], false, passbyval[a], -1, &target); // getTupleBassBy slow !
+                                        } 
+                                    }
+                                }
+                            }
+                        } else {
+                            elog(ERROR,"Unknown array signature");
+                        }
+                    }
+                    
                     ac++;
                     opensb = false;
                 }
@@ -606,14 +757,15 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
 
                                 int res = set_jobject_field_from_datum(&cobj, &fid, &attr, sig); 
 
+                                (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
+                                (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+                                
                                 if(res == 0) {                                
                                     target[ac].l = cobj;
                                 } else {
                                     elog(ERROR,"Unknown error in setting composite type");
                                 }
                                 
-                                (*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
-                                (*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
                             }
                                                        
                         }
@@ -749,6 +901,11 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                     }
                                 
                                     fid[i] = (*jenv)->GetFieldID(jenv, cls, fieldname[i], sig[i]);
+
+                                    // Convert fieldname to lower case for PG lookup
+                                    for(int j = 0; j < strlen(fieldname[i]); j++) {
+                                        fieldname[i][j] = tolower(fieldname[i][j]);
+                                    } 
                                 }
 
                                 // Get array
@@ -788,7 +945,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                             }
                                             int res = set_jobject_field_from_datum(&cobj, &fid[j], &attr, sig[j]); 
                                             
-                                            elog(WARNING,"-> %s (%s)", fieldname[j], sig[j]);
+                                            //elog(NOTICE,"-> %s (%s)", fieldname[j], sig[j]);
                                           
                                             if(res != 0) {                                
                                                 elog(ERROR,"Unknown error in setting composite type");
@@ -968,13 +1125,15 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
 PG_FUNCTION_INFO_V1(atest);
 Datum
 atest(PG_FUNCTION_ARGS) {
-  
+
     // Call java function
     char* class_name = "ai/sedn/unsupervised/Kmeans";
     char* method_name = "atest";
     char* signature = "([Lai/sedn/unsupervised/TestReturn;)I";
     elog(NOTICE,"A");
-    control_fgworker(fcinfo, false, class_name, method_name, signature, "I");
+    //control_fgworker(fcinfo, false, class_name, method_name, signature, "I");
+    control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, "I");
+    
     elog(NOTICE,"B");
    
     PG_RETURN_INT32(0);
@@ -992,4 +1151,50 @@ rtest(PG_FUNCTION_ARGS) {
     control_fgworker(fcinfo, true, class_name, method_name, signature, "O");
 
     PG_RETURN_NULL();
+}
+
+// Taken from PG and extended
+void
+GetNAttributes(HeapTupleHeader tuple,
+                int16 N, 
+                Datum* datum, bool *isNull, bool *passbyval) 
+{
+    Oid          tupType;
+    int32        tupTypmod;
+    TupleDesc    tupDesc;
+    HeapTupleData tmptup;
+
+    if (tuple == NULL)
+    {
+        /* Kinda bogus but compatible with old behavior... */
+        *isNull = true;
+        return;
+    }
+
+    tupType = HeapTupleHeaderGetTypeId(tuple);
+    tupTypmod = HeapTupleHeaderGetTypMod(tuple);
+    tupDesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+  
+    /*
+     * heap_getattr needs a HeapTuple not a bare HeapTupleHeader.  We set all
+     * the fields in the struct just in case user tries to inspect system
+     * columns.
+     */
+    tmptup.t_len = HeapTupleHeaderGetDatumLength(tuple);
+    ItemPointerSetInvalid(&(tmptup.t_self));
+    tmptup.t_tableOid = InvalidOid;
+	tmptup.t_xc_node_id = InvalidOid;
+    tmptup.t_data = tuple;
+    
+    for(int16 a = 0; a < N; a++) 
+    {
+        passbyval[a] = tupDesc->attrs[a]->attbyval;
+        
+        datum[a] = heap_getattr(&tmptup,
+                          a+1,
+                          tupDesc,
+                          &isNull[a]);
+    }
+    
+    ReleaseTupleDesc(tupDesc);
 }

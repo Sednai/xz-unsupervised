@@ -143,6 +143,7 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                     } else {
                         // Copy element by element 
                         //...
+                        elog(ERROR,"Array has NULLs");
                     }
             }
         }
@@ -280,6 +281,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
             return 1;
         }
         
+        primitive[0] = true;
         values[0] = Int64GetDatum( ret );
     
         return 0;
@@ -292,6 +294,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
             return 1;
         }
         
+        primitive[0] = true;
         values[0] = Int32GetDatum( ret );
     
         return 0;
@@ -305,6 +308,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
             return 1;
         }
         
+        primitive[0] = true;
         values[0] = Float8GetDatum( ret );
     
         return 0;
@@ -318,6 +322,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
             return 1;
         }
         
+        primitive[0] = true;
         values[0] = Float4GetDatum( ret );
     
         return 0;

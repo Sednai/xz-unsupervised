@@ -128,6 +128,326 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	return worker_head;
 }
 
+
+/*
+	Build Java args from serialized datums
+*/
+int 
+argDeSerializer(jvalue* args, worker_exec_entry* entry) {
+	char* pos = entry->data;
+	for(int i = 0; i < entry->n_args; i++) {
+
+		char* T = pos;
+		pos += strlen(T)+1;
+		//elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
+
+		bool isnull;
+		
+		jvalue val;
+
+		if(T[0] == '[') {
+			switch(T[1]) {
+				// 1D arrays
+				ArrayType* v;
+				Datum arg;
+				case 'J':
+					arg = datumDeSerialize(&pos, &isnull);
+					v = DatumGetArrayTypeP(arg);
+					if(!ARR_HASNULL(v)) {
+						jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+						jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
+						(*jenv)->SetLongArrayRegion(jenv,longArray, 0, nElems, (jlong*)ARR_DATA_PTR(v));
+						val.l = longArray;
+					} else {
+						// Copy element by element 
+						//...
+					}
+					break;
+				case 'F':
+					arg = datumDeSerialize(&pos, &isnull);
+					v = DatumGetArrayTypeP(arg);
+					if(!ARR_HASNULL(v)) {
+						jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+						jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
+						(*jenv)->SetFloatArrayRegion(jenv,floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
+						val.l = floatArray;
+					} else {
+						// Copy element by element 
+						//...
+					}
+					break;
+				case '[':
+					arg = datumDeSerialize(&pos, &isnull);
+
+					// 2D arrays;
+					switch(T[2]) {
+						case 'D':
+						v = DatumGetArrayTypeP(arg);
+						int nc = 0;
+						if(!ARR_HASNULL(v)) {
+							jclass cls = (*jenv)->FindClass(jenv,"[D");
+							jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0],cls,0);
+							
+							for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+								// Create inner
+								jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
+								(*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
+								nc += ARR_DIMS(v)[1];
+								(*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+								(*jenv)->DeleteLocalRef(jenv,innerArray);
+							}
+							
+							val.l = objectArray;
+							break;
+						}	
+						default:
+							strcpy(entry->data,"Could not deserialize java function argument (unknown 2d array type)");
+							return -1;
+					}
+					break;
+				case 'L':
+					// Object array
+					if(strcmp(T, "[Ljava/lang/String;") == 0) {
+						// String array
+						strcpy(entry->data,"Could not deserialize java function argument (string arrays not supported yet)");
+						return -1;
+					} else {
+						// Composite type
+					
+						// Read array length
+						int N = ((int*)(pos))[0];
+						pos += 4;
+
+						// Map composite type
+						jclass cls = (*jenv)->FindClass(jenv, T+1);
+						if(cls == NULL) {
+							strcpy(entry->data,"Could not deserialize java function argument (unknown class for composite type)");
+							return -1;
+						}
+						// Get field info
+						jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
+						jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields);    
+						jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
+						
+						if( len == 0 ) {
+							strcpy(entry->data,"Could not deserialize java function argument (composite type has zero elements)");
+							return -1;		
+						} else {
+							// Create object array
+							jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, N, cls, 0);
+								
+							// Infer fields
+							char* sig[len];
+							char* fieldname[len];
+							char* typename[len];
+							jstring jstr[len];
+							jstring jstr2[len];
+							jfieldID fid[len];
+
+							// Loop over class fields to prepare                             
+							for(int i = 0; i < len; i++) {
+								
+								// Detect field
+								jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
+								jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
+									
+								// Obtain signature
+								jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
+								jstr[i] = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
+							
+								fieldname[i] =  (*jenv)->GetStringUTFChars(jenv, jstr[i], false);
+							
+								m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
+								jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
+								jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
+
+								m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
+								jstr2[i] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
+								typename[i] =  (*jenv)->GetStringUTFChars(jenv, jstr2[i], false);
+
+								char error_msg[128];
+								sig[i] = convert_name_to_JNI_signature(typename[i], error_msg);
+								
+								if(sig[i] == NULL) {
+									sprintf(entry->data,"%s",error_msg);   
+									return -1;
+								}
+							
+								fid[i] = (*jenv)->GetFieldID(jenv, cls, fieldname[i], sig[i]);
+							}
+
+							// Loop over elements
+							for(int n = 0; n < N; n++) {
+						
+								// Construct new instance
+								jmethodID constructor = (*jenv)->GetMethodID(jenv, cls, "<init>", "()V");
+								jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
+
+								// Loop over class fields                            
+								for(int i = 0; i < len; i++) {
+									
+									// Read element
+									arg = datumDeSerialize(&pos, &isnull);
+									
+									if(isnull) {
+										strcpy(entry->data,"Could not deserialize java function argument (no corresponding attribute found)");
+										return -1;
+									}
+									
+									int res = set_jobject_field_from_datum(&cobj, &fid[i], &arg, sig[i]); 
+									
+									if(res != 0) {                                
+										strcpy(entry->data,"Could not deserialize java function argument (unknown error in composite type)");
+										return -1;
+									}
+
+									// Set element
+									(*jenv)->SetObjectArrayElement(jenv, objectArray, n, cobj);
+								}
+							}
+							
+							// Cleanup
+							for(int i = 0; i < len; i++) {
+								(*jenv)->ReleaseStringUTFChars(jenv, jstr2[i], typename[i]);
+								(*jenv)->ReleaseStringUTFChars(jenv, jstr[i], fieldname[i]);
+							}
+
+							val.l = objectArray;
+						}			
+						break;
+					}
+					
+				default:
+					strcpy(entry->data,"Could not deserialize java function argument (unknown array type)");
+					return -1;
+			}
+		}
+		else if(T[0] == 'L') {
+			Datum arg = datumDeSerialize(&pos, &isnull);
+
+			// Objects
+			if(strcmp(T, "Ljava/lang/String;") == 0) {
+				text* txt = DatumGetTextP(arg);
+				int len = VARSIZE_ANY_EXHDR(txt)+1;
+				char t[len];
+				text_to_cstring_buffer(txt, &t, len);
+				val.l = (*jenv)->NewStringUTF(jenv, t);
+				break;
+			} else {
+				
+				// Map composite type
+				jclass cls = (*jenv)->FindClass(jenv, T);
+				if(cls == NULL) {
+                	strcpy(entry->data,"Could not deserialize java function argument (unknown class for composite type)");
+					return -1;
+                }
+				// Get field info
+				jmethodID getFields = (*jenv)->GetMethodID(jenv, (*jenv)->GetObjectClass(jenv,cls), "getFields", "()[Ljava/lang/reflect/Field;");
+				jobjectArray fieldsList = (jobjectArray)  (*jenv)->CallObjectMethod(jenv, cls, getFields);    
+				jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
+				
+				if(len == 0) {
+					strcpy(entry->data,"Could not deserialize java function argument (empty class for composite type)");
+					return -1;
+				} else {
+					// Construct new instance
+					jmethodID constructor = (*jenv)->GetMethodID(jenv, cls, "<init>", "()V");
+					jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
+							
+					// Loop over class fields                            
+					for(int i = 0; i < len; i++) {
+						
+						// ToDo: Move to helper function ?
+
+						// Detect field
+						jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
+						jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
+							
+						// Obtain signature
+						jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
+						jstring jstr = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
+					
+						char* fieldname =  (*jenv)->GetStringUTFChars(jenv, jstr, false);
+					
+						m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
+						jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
+						jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
+
+						m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
+						jstring jstr2 = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
+						char* typename =  (*jenv)->GetStringUTFChars(jenv, jstr2, false);
+
+						char* sig = convert_name_to_JNI_signature(typename, entry->data);
+						
+						if(sig == NULL) {
+							return -1;  
+						}
+						
+						jfieldID fid = (*jenv)->GetFieldID(jenv, cls, fieldname, sig);
+						
+						Datum attr;
+						if(i > 0) {
+							attr = datumDeSerialize(&pos, &isnull);
+						} else {
+							attr = arg;
+						}
+					
+						if(isnull) {
+							strcpy(entry->data,"Could not deserialize java function argument (no corresponding attribute found)");
+							return -1;
+						}
+						
+						int res = set_jobject_field_from_datum(&cobj, &fid, &attr, sig); 
+						
+						(*jenv)->ReleaseStringUTFChars(jenv, jstr2, typename);
+						(*jenv)->ReleaseStringUTFChars(jenv, jstr, fieldname);
+
+						if(res != 0) {                                
+							strcpy(entry->data,"Could not deserialize java function argument (unknown error in composite type)");
+							return -1;
+						}
+                        
+					}
+					val.l = cobj;
+				}
+				
+				//strcpy(entry->data,"HALDE");
+				//return -1;
+			}
+		} 
+		else {
+			Datum arg = datumDeSerialize(&pos, &isnull);
+
+			// Natives
+			switch(T[0]) {
+				case 'I':
+					val.i = (jint) DatumGetInt32(arg);
+					break;
+				case 'J':
+					val.j = (jlong) DatumGetInt64(arg);
+					break;
+				case 'Z':
+					val.z = (jboolean) DatumGetBool(arg);
+					break;
+				case 'F':
+					val.f = (jfloat) DatumGetFloat4(arg);
+					break;
+				case 'D':
+					val.d = (jdouble) DatumGetFloat8(arg);	
+					break;	
+				default:
+					strcpy(entry->data,"Could not deserialize java function argument (unknown native type)");
+					return -1;	
+			}
+		}
+
+		args[i] = val;
+	}		
+
+	return 0;
+}
+
+
 void
 sigTermHandler(SIGNAL_ARGS)
 {
@@ -252,8 +572,9 @@ moonshot_worker_main(Datum main_arg)
 		/*
 			Call JAVA
 		*/
-		// Prepare args
-		jvalue args[entry->n_args];
+		// ToDo: Move to switch function
+
+		/*
 		char* pos = entry->data;
 		for(int i = 0; i < entry->n_args; i++) {
 
@@ -354,14 +675,20 @@ moonshot_worker_main(Datum main_arg)
 
 			args[i] = val;
 		}
-
+		*/
+	
 		Datum values[entry->n_return];
 		bool primitive[entry->n_return];
 		
-		elog(WARNING,"[DEBUG]: Calling java function %s->%s",entry->class_name,entry->method_name);
-			
-		int jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args, entry->data);
-	
+		// Prepare args
+		jvalue args[entry->n_args];
+		int jfr = argDeSerializer(args, entry);
+
+		//elog(WARNING,"[DEBUG]: Calling java function %s->%s",entry->class_name,entry->method_name);
+		if(jfr == 0) {			
+			jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args, entry->data);
+		} 
+
 		// Check for exception
 		if( jfr > 0 ) {
 			elog(WARNING,"Java exception occured. Code: %d",jfr);
