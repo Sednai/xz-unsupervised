@@ -99,43 +99,15 @@ dbscan_batch(PG_FUNCTION_ARGS)
 /*
     Period search
 */
-PG_FUNCTION_INFO_V1(psearch);
+
+PG_FUNCTION_INFO_V1(psearch_ms_bg_cpu);
 Datum
-psearch(PG_FUNCTION_ARGS) 
+psearch_ms_bg_cpu(PG_FUNCTION_ARGS) 
 {
     char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearch"; 
-    char* signature = "(J[D[D[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(psearch_ms_gpu);
-Datum
-psearch_ms_gpu(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearchGPU";
+    char* method_name = "DoPeriodSearchCPU";
     
-    char* signature = "(J[D[D[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
-    char* return_type = "O";
-
-    Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-
-    PG_RETURN_DATUM( ret );   
-}
-
-PG_FUNCTION_INFO_V1(psearch_ms_gpu_new);
-Datum
-psearch_ms_gpu_new(PG_FUNCTION_ARGS) 
-{
-    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
-    char* method_name = "DoPeriodSearchGPU";
-    
-    char* signature = "([J[[D[[D[[D)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
+    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
     char* return_type = "O";
 
     Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
@@ -143,9 +115,9 @@ psearch_ms_gpu_new(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM( ret );   
 }
 
-PG_FUNCTION_INFO_V1(psearch_ms_gpu_new_comp);
+PG_FUNCTION_INFO_V1(psearch_ms_bg_gpu);
 Datum
-psearch_ms_gpu_new_comp(PG_FUNCTION_ARGS) 
+psearch_ms_bg_gpu(PG_FUNCTION_ARGS) 
 {
     char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
     char* method_name = "DoPeriodSearchGPU";
@@ -154,14 +126,28 @@ psearch_ms_gpu_new_comp(PG_FUNCTION_ARGS)
     char* return_type = "O";
 
     Datum ret = control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, return_type);
-    //Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
     
     PG_RETURN_DATUM( ret );   
 }
 
-PG_FUNCTION_INFO_V1(psearch_ms_gpu_new_comp_fg);
+PG_FUNCTION_INFO_V1(psearch_ms_fg_cpu);
 Datum
-psearch_ms_gpu_new_comp_fg(PG_FUNCTION_ARGS) 
+psearch_ms_fg_cpu(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
+    char* method_name = "DoPeriodSearchCPU";
+    
+    char* signature = "([Lgaia/cu7/algo/character/periodsearch/PeriodData;)Lgaia/cu7/algo/character/periodsearch/PeriodResult;";
+    char* return_type = "O";
+
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+    
+    PG_RETURN_DATUM( ret );   
+}
+
+PG_FUNCTION_INFO_V1(psearch_ms_fg_gpu);
+Datum
+psearch_ms_fg_gpu(PG_FUNCTION_ARGS) 
 {
     char* class_name = "gaia/cu7/algo/character/periodsearch/AEROInterface";
     char* method_name = "DoPeriodSearchGPU";
@@ -173,6 +159,7 @@ psearch_ms_gpu_new_comp_fg(PG_FUNCTION_ARGS)
     
     PG_RETURN_DATUM( ret );   
 }
+
 
 /*
     Main function to deliver tasks to bg workers and collect results
@@ -1122,42 +1109,6 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
 }
 
 
-/*
-
-    EXPERIMENTAL
-
-*/
-PG_FUNCTION_INFO_V1(atest);
-Datum
-atest(PG_FUNCTION_ARGS) {
-
-    // Call java function
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "atest";
-    char* signature = "([Lai/sedn/unsupervised/TestReturn;)I";
-    elog(NOTICE,"A");
-    //control_fgworker(fcinfo, false, class_name, method_name, signature, "I");
-    control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, "I");
-    
-    elog(NOTICE,"B");
-   
-    PG_RETURN_INT32(0);
-}
-
-PG_FUNCTION_INFO_V1(rtest);
-Datum
-rtest(PG_FUNCTION_ARGS) {
- 
-    // Call java function
-    char* class_name = "ai/sedn/unsupervised/Kmeans";
-    char* method_name = "rtest";
-    char* signature = "()Ljava/util/Iterator;";
-
-    control_fgworker(fcinfo, true, class_name, method_name, signature, "O");
-
-    PG_RETURN_NULL();
-}
-
 // Taken from PG and extended
 void
 GetNAttributes(HeapTupleHeader tuple,
@@ -1202,4 +1153,41 @@ GetNAttributes(HeapTupleHeader tuple,
     }
     
     ReleaseTupleDesc(tupDesc);
+}
+
+
+/*
+
+    EXPERIMENTAL
+
+*/
+PG_FUNCTION_INFO_V1(atest);
+Datum
+atest(PG_FUNCTION_ARGS) {
+
+    // Call java function
+    char* class_name = "ai/sedn/unsupervised/Kmeans";
+    char* method_name = "atest";
+    char* signature = "([Lai/sedn/unsupervised/TestReturn;)Lai/sedn/unsupervised/TestReturn;";
+    elog(NOTICE,"A");
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, "O");
+    //control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, "I");
+    
+    elog(NOTICE,"B");
+
+    PG_RETURN_DATUM( ret );      
+}
+
+PG_FUNCTION_INFO_V1(rtest);
+Datum
+rtest(PG_FUNCTION_ARGS) {
+ 
+    // Call java function
+    char* class_name = "ai/sedn/unsupervised/Kmeans";
+    char* method_name = "rtest";
+    char* signature = "()Ljava/util/Iterator;";
+
+    control_fgworker(fcinfo, true, class_name, method_name, signature, "O");
+
+    PG_RETURN_NULL();
 }
