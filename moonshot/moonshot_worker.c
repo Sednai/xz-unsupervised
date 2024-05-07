@@ -28,9 +28,6 @@
 #include "utils/snapmgr.h"
 #include "math.h"
 
-#define WORKER_LIB "/data/moonshot/moonshot.so"
-
-
 bool got_signal = false;
 int worker_id;
 static worker_data_head *worker_head = NULL;
@@ -83,6 +80,9 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
 		worker.bgw_restart_time = 10; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
+		
+		char* WORKER_LIB = GetConfigOption("ms.lib",true,true);
+		
 		sprintf(worker.bgw_library_name, WORKER_LIB);
 		sprintf(worker.bgw_function_name, "moonshot_worker_main");
 		
