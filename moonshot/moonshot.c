@@ -24,7 +24,9 @@
 #include "ctype.h"
 
 #include <utils/typcache.h>
+#include "postmaster/bgworker.h"
 
+// ToDo: Need two data structures so that user and global bg workers can be used simultaneously
 worker_data_head *worker_head = NULL;
 
 enum { NS_PER_SECOND = 1000000000 };
@@ -1077,37 +1079,71 @@ PG_FUNCTION_INFO_V1(moonshot_restart_workers);
 Datum
 moonshot_restart_workers(PG_FUNCTION_ARGS) {
    
-    // Get global data structure
-    if(worker_head == NULL) {
-        Oid			roleid = GetUserId();
-	    Oid			dbid = MyDatabaseId;
-	
-        char buf[12];
-        snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
-        
-        bool found = false;
-        worker_head = ShmemInitStruct(buf,
-								   sizeof(worker_data_head),
-								   &found);
-        if(!found) {
-            worker_head->n_workers = 0;
-        }
+    Oid			roleid = GetUserId();
+    Oid			dbid = MyDatabaseId;
+
+    char buf[BGW_MAXLEN];
+    snprintf(buf, BGW_MAXLEN, "MW_%d_%d", roleid, dbid); 
+    
+    bool found = false;
+    worker_data_head* worker_head = ShmemInitStruct(buf,
+                            sizeof(worker_data_head),
+                            &found);
+    if(!found) {
+        worker_head->n_workers = 0;
     }
 
     SpinLockAcquire(&worker_head->lock);
+    
     int n_workers = worker_head->n_workers;
-    int pid = worker_head->pid[0];
-    SpinLockRelease(&worker_head->lock);   
-
+    
     if(n_workers == 0) {
         elog(ERROR,"Can not restart workers if not started yet");
     }
-         
-    int r = kill(pid, SIGTERM);
     
-    PG_RETURN_INT32(r);
+    int ret = 0;
+    for(int r = 0; r < n_workers; r++) {
+        ret += kill( worker_head->pid[r], SIGTERM);
+    }
+  
+    SpinLockRelease(&worker_head->lock);   
+    
+    PG_RETURN_INT32(ret);
 }
 
+PG_FUNCTION_INFO_V1(ms_restart_global_workers);
+Datum
+ms_restart_global_workers(PG_FUNCTION_ARGS) {
+   
+    // Get global data structure
+    char buf[BGW_MAXLEN];
+    snprintf(buf, BGW_MAXLEN, "MW_global"); 
+        
+    bool found = false;
+    worker_data_head* worker_head = ShmemInitStruct(buf,
+                                sizeof(worker_data_head),
+                                &found);
+    if(!found) {
+        worker_head->n_workers = 0;
+    }
+    
+    SpinLockAcquire(&worker_head->lock);
+    
+    int n_workers = worker_head->n_workers;
+    
+    if(n_workers == 0) {
+        elog(ERROR,"Can not restart workers if not started yet");
+    }
+    
+    int ret = 0;
+    for(int r = 0; r < n_workers; r++) {
+        ret += kill( worker_head->pid[r], SIGTERM);
+    }
+  
+    SpinLockRelease(&worker_head->lock);   
+    
+    PG_RETURN_INT32(ret);
+}
 
 // Taken from PG and extended
 void
