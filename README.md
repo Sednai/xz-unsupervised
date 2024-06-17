@@ -1,6 +1,6 @@
 # xz-unsupervised
 
-Distributed K-Means unsupervised clustering via gradient descent for TBase (distributed database PostgreSQL fork). Requires Sednai forks of TBase and plJava and TornadoVM for GPU acceleration.
+Distributed K-Means unsupervised clustering via gradient descent for TBase (distributed database PostgreSQL fork). Requires Sednai forks of TBase and plJava. For GPU acceleration TornadoVM is required.
 
 Note that paths below have to be adapted for your local install.
 
