@@ -782,7 +782,7 @@ void prepareErrorMsg(jthrowable exh, char* target, int cutoff) {
 	}
 }
 
-// Note: Code from postgres
+// ToDo: Solve why external call of the two Postgres functions below crash, and then remove here.
 Datum
 datumDeSerialize(char **address, bool *isnull)
 {
