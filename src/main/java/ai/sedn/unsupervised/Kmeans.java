@@ -10,6 +10,7 @@ import uk.ac.manchester.tornado.api.TaskGraph;
 import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
 import uk.ac.manchester.tornado.api.WorkerGrid;
 import uk.ac.manchester.tornado.api.WorkerGrid1D;
+import uk.ac.manchester.tornado.api.WorkerGrid2D;
 import uk.ac.manchester.tornado.api.enums.DataTransferMode;
 import uk.ac.manchester.tornado.api.KernelContext;
 
@@ -48,6 +49,67 @@ public class Kmeans {
 
 	//private static String m_url = "jdbc:postgresql://localhost/pljava_new?socketFactory=org.newsclub.net.unix.AFUNIXSocketFactory$FactoryArg&socketFactoryArg=/tmp/.s.PGSQL.40004";
 	//private static String m_url = "jdbc:postgresql://localhost:40004/pljava_new";
+	
+	public static TestReturn atest(TestReturn[] A) throws SQLException {
+		System.out.println("ENTRY OK");
+		
+		System.out.println(A[0].exectime);
+		System.out.println(A[0].freq[0]);
+		System.out.println(A[0].amp[0]);
+		System.out.println(A[0].periods[0]);
+
+		return A[0];
+	}
+	
+	public static boolean btest(ResultSet[] B, ResultSet receiver) throws SQLException {
+		System.out.println("ENTRY OK");
+
+		// In
+		TestReturn A = new TestReturn();
+		
+		A.exectime = (long) B[0].getObject(1);
+		A.freq = (double[]) B[0].getObject(2);
+		A.amp = (double[]) B[0].getObject(3);
+		A.periods = (double[]) B[0].getObject(4);
+		
+		// Exec
+		System.out.println(A.exectime);
+		System.out.println(A.freq[0]);
+		System.out.println(A.amp[0]);
+		System.out.println(A.periods[0]);
+
+		
+		// Return
+		receiver.updateObject(1,A.exectime);
+		receiver.updateObject(2,A.freq);
+		receiver.updateObject(3,A.amp);
+		receiver.updateObject(4,A.periods);
+					
+		return true;
+	}
+	/*
+	public static int atest(TestReturn[] A) throws SQLException {
+		System.out.println("ENTRY OK");
+		
+		System.out.println(A[0].exectime);
+		System.out.println(A[0].freq[0]);
+		
+		return 0;
+	}
+	*/
+	
+	public static Iterator rtest() throws SQLException {
+		ArrayList L = new ArrayList<TestReturn>();
+		
+		TestReturn T = new TestReturn();
+		T.exectime = 1;
+		
+		L.add(T);
+		L.add(T);
+		L.add(T);
+		
+		return L.listIterator();
+	}
 	
 	public static GradientReturn background_test() throws SQLException {
 		
@@ -282,12 +344,12 @@ public class Kmeans {
 		
 		// Init Tornado
 		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
+		WorkerGrid  gridworker_2D = new WorkerGrid2D(N[0],K[0]);
 		
 		GridScheduler gridScheduler = new GridScheduler();
 	
 		System.out.println("[DEBUG] starting kernel init");
 		
-		try {
 		KernelContext context = new KernelContext();    
 		TaskGraph taskGraph = new TaskGraph("s0")
 				.transferToDevice(DataTransferMode.FIRST_EXECUTION, centroids, ccentroid, d, Nc, K, centroids_L)       	
@@ -301,78 +363,79 @@ public class Kmeans {
 		
 		System.out.println("[DEBUG] graph snapshot ready");
 		
-		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
-		
-		System.out.println("[DEBUG] Execution plan ready");
-		
-		
-		gridScheduler.setWorkerGrid("s0.t0", gridworker);
+
+		gridScheduler.setWorkerGrid("s0.t0", gridworker_2D);
 		gridScheduler.setWorkerGrid("s0.t1", gridworker);
 		
-		// Init return vars
-		int[] ncount = new int[K[0]];
-		float[][] gradients = new float[K[0]][Nc[0]];
-		
-		System.out.println("[DEBUG] Before main loop");
-		
-		
-		// Do batching
-		boolean stop = false;
-		try {
-			while(!stop) {
-				
-				// Build batch
-				long tic_io = System.nanoTime();
-				N[0] = 0;
-				for(int i = 0; i < tvm_batch_size; i++) {
-					
-					if(!moonshot.fetch_next()) {
-						stop = true;
-						break;
-					}	
-					double[] A = moonshot.getdoublearray(1);// <- To be changed after change in DB ! ( to Float )
-					
-					if(A == null) {	
-						System.out.println("[DEBUG]: NULL ARRAY!");
-						
-						break;
-					}
-						
-					for(int c = 0; c < Nc[0]; c++) {
-						v_batch[i*Nc[0]+c] = (float) A[c];
-					}
+		try(TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph)) {
 			
-					N[0]++;
-				}
-				long toc_io = System.nanoTime();
-				runstats[1] += toc_io-tic_io;
-				
-				// Calc
-				if(N[0] > 0) {
-					long tic_tvm = System.nanoTime();
-					// Calc all distances
-					gridworker.setGlobalWork(N[0], 1, 1);
+			System.out.println("[DEBUG] Execution plan ready");
+			
+			
+			// Init return vars
+			int[] ncount = new int[K[0]];
+			float[][] gradients = new float[K[0]][Nc[0]];
+			
+			System.out.println("[DEBUG] Before main loop");
+			
+			
+			// Do batching
+			boolean stop = false;
+			try {
+				while(!stop) {
 					
-		    	    executor_distance.withGridScheduler(gridScheduler).execute();
-		    	    
-		    	    runstats[2] += System.nanoTime() - tic_tvm;
-		    	    
-		    	    // Calc counts
-					for(int i = 0; i < N[0]; i++) {
+					// Build batch
+					long tic_io = System.nanoTime();
+					N[0] = 0;
+					for(int i = 0; i < tvm_batch_size; i++) {
 						
-						ncount[ ccentroid[i] ]++;
+						if(!moonshot.fetch_next()) {
+							stop = true;
+							break;
+						}	
+						double[] A = moonshot.getdoublearray(1);// <- To be changed after change in DB ! ( to Float )
 						
-						// Add to gradient
-						vec_add(gradients[ ccentroid[i] ], getRowFrom2Darray(v_batch,i,Nc[0]));	
+						if(A == null) {	
+							System.out.println("[DEBUG]: NULL ARRAY!");
+							
+							break;
+						}
+							
+						for(int c = 0; c < Nc[0]; c++) {
+							v_batch[i*Nc[0]+c] = (float) A[c];
+						}
+				
+						N[0]++;
 					}
-				}	
+					long toc_io = System.nanoTime();
+					runstats[1] += toc_io-tic_io;
+					
+					// Calc
+					if(N[0] > 0) {
+						long tic_tvm = System.nanoTime();
+						// Calc all distances
+						gridworker.setGlobalWork(N[0], 1, 1);
+						
+			    	    executor_distance.withGridScheduler(gridScheduler).execute();
+			    	    
+			    	    runstats[2] += System.nanoTime() - tic_tvm;
+			    	    
+			    	    // Calc counts
+						for(int i = 0; i < N[0]; i++) {
+							
+							ncount[ ccentroid[i] ]++;
+							
+							// Add to gradient
+							vec_add(gradients[ ccentroid[i] ], getRowFrom2Darray(v_batch,i,Nc[0]));	
+						}
+					}	
+				}
+				
+			} catch(Throwable t) {	
+				t.printStackTrace();
+				throw new SQLException(t);
 			}
 			
-		} catch(Throwable t) {	
-			t.printStackTrace();
-			throw new SQLException(t);
-		}
-		
 		// Add centroid contributions
 		for(int k = 0; k < K[0]; k++) {
 			vec_muladd(gradients[k],-ncount[k],getRowFrom2Darray(in_centroids,k,Nc[0]));
@@ -381,9 +444,7 @@ public class Kmeans {
 		runstats[0] = (System.nanoTime() - tic_global)/1e6f;
 		runstats[1] /= 1e6f;
 		runstats[2] /= 1e6f;
-		
-		executor_distance.freeDeviceMemory();
-		
+			
 		GradientReturn T =  new GradientReturn();
 		
 		T.Test1 = gradients;
@@ -1142,6 +1203,7 @@ public static Iterator kmeans_control_float_ms(String table, String cols, int K,
 		
 		// Init Tornado
 		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
+		WorkerGrid  gridworker_2D = new WorkerGrid2D(N[0],K[0]);
 		
 		GridScheduler gridScheduler = new GridScheduler();
 		
@@ -1154,66 +1216,74 @@ public static Iterator kmeans_control_float_ms(String table, String cols, int K,
 	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
 		
 		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
-		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
 		
-		gridScheduler.setWorkerGrid("s0.t0", gridworker);
+		gridScheduler.setWorkerGrid("s0.t0", gridworker_2D);
 		gridScheduler.setWorkerGrid("s0.t1", gridworker);
 		
 		// Init return vars
 		int[] ncount = new int[K[0]];
 		float[][] gradients = new float[K[0]][Nc[0]];
-		
-		// Do batching
-		boolean stop = false;
-		while(!stop) {
-			
-			// Build batch
-			long tic_io = System.nanoTime();
-			N[0] = 0;
-			for(int i = 0; i < tvm_batch_size; i++) {
-				// Stop if no more data
-				if(!rs.R.next()) {
-					stop = true;
-					break;
-				}
-				// Set data
-				if(rs.array) {
-					// 1D array
-					double[] A = (double[]) rs.R.getObject(1); // <- To be changed after change in DB ! ( to Float )
 					
-					for(int c = 0; c < Nc[0]; c++) {
-						v_batch[i*Nc[0]+c] = (float) A[c];
-					}
-					
-				} else {
-					for(int c = 1; c < Nc[0]+1; c++) {
-						v_batch[i*Nc[0]+c-1]= rs.R.getFloat(c);
-					}
-				}
-				N[0]++;
-			}
-			long toc_io = System.nanoTime();
-			runstats[1] += toc_io-tic_io;
+		try(TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph)) {
 			
-			// Calc
-			if(N[0] > 0) {
-				long tic_tvm = System.nanoTime();
-				// Calc all distances
-				gridworker.setGlobalWork(N[0], 1, 1);
+			
+			// Do batching
+			boolean stop = false;
+			while(!stop) {
 				
-	    	    executor_distance.withGridScheduler(gridScheduler).execute();
-	    	    
-	    	    runstats[2] += System.nanoTime() - tic_tvm;
-	    	    
-	    	    // Calc counts
-				for(int i = 0; i < N[0]; i++) {
-					
-					ncount[ ccentroid[i] ]++;
-					
-					// Add to gradient
-					vec_add(gradients[ ccentroid[i] ], getRowFrom2Darray(v_batch,i,Nc[0]));	
+				// Build batch
+				long tic_io = System.nanoTime();
+				N[0] = 0;
+				for(int i = 0; i < tvm_batch_size; i++) {
+					// Stop if no more data
+					if(!rs.R.next()) {
+						stop = true;
+						break;
+					}
+					// Set data
+					if(rs.array) {
+						// 1D array
+						double[] A = (double[]) rs.R.getObject(1); // <- To be changed after change in DB ! ( to Float )
+						
+						for(int c = 0; c < Nc[0]; c++) {
+							v_batch[i*Nc[0]+c] = (float) A[c];
+						}
+						
+					} else {
+						for(int c = 1; c < Nc[0]+1; c++) {
+							v_batch[i*Nc[0]+c-1]= rs.R.getFloat(c);
+						}
+					}
+					N[0]++;
 				}
-			}	
+				long toc_io = System.nanoTime();
+				runstats[1] += toc_io-tic_io;
+				
+				// Calc
+				if(N[0] > 0) {
+					long tic_tvm = System.nanoTime();
+					// Calc all distances
+					gridworker.setGlobalWork(N[0], 1, 1);
+					
+		    	    executor_distance.withGridScheduler(gridScheduler).execute();
+		    	    
+		    	    runstats[2] += System.nanoTime() - tic_tvm;
+		    	    
+		    	    // Calc counts
+					for(int i = 0; i < N[0]; i++) {
+						
+						ncount[ ccentroid[i] ]++;
+						
+						// Add to gradient
+						vec_add(gradients[ ccentroid[i] ], getRowFrom2Darray(v_batch,i,Nc[0]));	
+					}
+				}	
+			}
+		
+				
+		} catch(Exception e) {
+			e.printStackTrace();
+			throw new SQLException(e);
 		}
 		
 		// Add centroid contributions
@@ -1228,10 +1298,7 @@ public static Iterator kmeans_control_float_ms(String table, String cols, int K,
 		receiver.updateObject(1, gradients);
 		receiver.updateObject(2, ncount);		
 		receiver.updateObject(3, runstats);
-		
-		executor_distance.freeDeviceMemory();
-		
-		// Force GC
+	
 		System.gc();
 		System.runFinalization();
 		
@@ -1423,13 +1490,14 @@ public static Iterator kmeans_control_float_ms(String table, String cols, int K,
 		// d : N[0] x Ncentr = i*Ncentr + j
 		
 		int i = context.globalIdx;
-		for(int j = 0; j < Ncentr[0]; j++)  {
+		int j = context.globalIdy;
+		//for(int j = 0; j < Ncentr[0]; j++)  {
 			float tmp = 0;
 			for(int k = 0; k < Nc[0]; k++) {
 				tmp += v1[i*Nc[0]+k] * v2[j*Nc[0]+k];
 			}	
 			d[i*Ncentr[0]+j] = nc[j]-tmp;
-		}
+		//}
 	}
 	
 	/**

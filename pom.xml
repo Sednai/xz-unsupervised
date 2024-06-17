@@ -51,7 +51,8 @@
     <artifactId>pljava-api</artifactId>
     <scope>system</scope>
     <version>1.7-SNAPSHOT</version>
-    <systemPath>/ZNVME/xz4/app/share/postgresql/pljava/pljava-api-1.7-SNAPSHOT.jar</systemPath>
+    <!--<systemPath>/ZNVME/xz4/app/share/postgresql/pljava/pljava-api-1.7-SNAPSHOT.jar</systemPath> -->
+	<systemPath>/data/TBase/install/TBase_bin_v2.0/share/postgresql/pljava/pljava-api-1.7-SNAPSHOT.jar</systemPath>
 	</dependency>
      <dependency>
     <groupId>tornado</groupId>

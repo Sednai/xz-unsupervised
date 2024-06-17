@@ -652,7 +652,7 @@ JavaVMOption* setJVMoptions(int* numOptions) {
                 int N;
                 char buf[i-spos]; 
                 strncpy(buf,&OPTIONS[spos],i-spos);
-             
+
                 char **lines =  readOptions(&buf[1],&N);
                 for(int l = 0; l < N; l++ ) {
               
