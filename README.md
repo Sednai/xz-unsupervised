@@ -1,4 +1,4 @@
-# xz-unsupervised - branch active on gaiadbgpu
+# xz-unsupervised
 
 Distributed K-Means unsupervised clustering via gradient descent for TBase (distributed database PostgreSQL fork).
 
