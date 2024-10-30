@@ -11,6 +11,7 @@ package ai.sedn.unsupervised;
 */
 
 public class TestReturn extends MoonshotReturn {
+	
 	public long exectime;
 	public double[] freq;
 	public double[] amp;

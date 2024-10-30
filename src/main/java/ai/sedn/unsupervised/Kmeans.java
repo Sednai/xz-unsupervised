@@ -50,7 +50,8 @@ public class Kmeans {
 	//private static String m_url = "jdbc:postgresql://localhost/pljava_new?socketFactory=org.newsclub.net.unix.AFUNIXSocketFactory$FactoryArg&socketFactoryArg=/tmp/.s.PGSQL.40004";
 	//private static String m_url = "jdbc:postgresql://localhost:40004/pljava_new";
 	
-	public static TestReturn atest(TestReturn[] A) throws SQLException {
+	/*
+	public static TestReturn atest() throws SQLException {
 		System.out.println("ENTRY OK");
 		
 		System.out.println(A[0].exectime);
@@ -60,7 +61,7 @@ public class Kmeans {
 
 		return A[0];
 	}
-	
+	*/
 	public static boolean btest(ResultSet[] B, ResultSet receiver) throws SQLException {
 		System.out.println("ENTRY OK");
 
@@ -87,6 +88,91 @@ public class Kmeans {
 					
 		return true;
 	}
+	
+	public static boolean ctest(ResultSet receiver) throws SQLException {
+		System.out.println("ENTRY OK");
+
+		Integer[][] A = {{1,2,3,4,5,6,7,8,9,10}, {1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10},{1,2,3,4,5,6,7,8,9,10}};
+		Short[][] B = {{0,1},{1,0}};
+		Long[][] C = {{0l,999l},{999l,0l}};
+		//byte[][] D = {{127,0},{0,127}};
+		
+		// Return
+		receiver.updateObject(1, A);
+		receiver.updateObject(2, B);
+		receiver.updateObject(3, C);
+		//receiver.updateObject(4, D);
+				
+		return true;
+	}
+	
+	public static boolean dtest(ResultSet IN, ResultSet receiver) throws SQLException {
+		System.out.println("ENTRY OK");
+
+		int[][] A = (int[][]) IN.getObject(1);
+		short[][] B = (short[][]) IN.getObject(2);
+		long[][] C = (long[][]) IN.getObject(3);
+		
+		long[][] X = new long[1][];
+		
+		for(int i = 0; i < X.length; i++) {
+			for(int j = 0; j < X[i].length; j++) {
+				
+			}
+		}
+		
+		
+		
+		B[0][0] = 0;
+		C[0][0] = 0;
+		
+		// Return
+		receiver.updateObject(1, A);
+		receiver.updateObject(2, B);
+		receiver.updateObject(3, X);
+				
+		return true;
+	}
+	
+	public static TestReturn2 etest(byte[] BIN) throws SQLException {
+		System.out.println("ENTRY OK");
+
+		int[][] A = new int[2][2];
+		short[][] B = new short[2][2];
+		long[][] C = new long[2][2];
+		
+		byte[] D = new byte[3];
+		
+		A[0][0] = 1;
+		A[0][1] = 2;
+		A[1][0] = 3;
+		A[1][1] = 4;
+		
+		B[0][0] = -1;
+		B[0][1] = -2;
+		B[1][0] = -3;
+		B[1][1] = -4;
+		
+		
+		C[0][0] = 1000;
+		C[0][1] = 2000;
+		C[1][0] = 3000;
+		C[1][1] = 4000;
+		
+		D[0] = 1;
+		D[1] = 2;
+		D[2] = 3;
+		
+		
+		TestReturn2 R = new TestReturn2();
+		R.Test1 = A;
+		R.Test2 = B;
+		R.Test3 = C;
+		R.Test4 = BIN;
+		
+		return R;
+	}
+	
 	/*
 	public static int atest(TestReturn[] A) throws SQLException {
 		System.out.println("ENTRY OK");
