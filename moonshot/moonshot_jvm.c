@@ -186,36 +186,42 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
 	                bytea* b = (bytea*)palloc(nElems + sizeof(int32));
                     SET_VARSIZE(b, nElems + sizeof(int32));
                     (*jenv)->GetByteArrayRegion(jenv,arr, 0, nElems, (jbyte*)VARDATA(b));
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(b); 
                 case 'I':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jint), INT4OID, false);
                     (*jenv)->GetIntArrayRegion(jenv,arr, 0, nElems, (jint*)ARR_DATA_PTR(v));
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'J':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jlong), INT8OID, false);
                     (*jenv)->GetLongArrayRegion(jenv,arr, 0, nElems, (jlong*)ARR_DATA_PTR(v));
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'S':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jshort), INT2OID, false);
                     (*jenv)->GetShortArrayRegion(jenv,arr, 0, nElems, (jshort*)ARR_DATA_PTR(v));
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'F':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jfloat), FLOAT4OID, false);
                     (*jenv)->GetFloatArrayRegion(jenv,arr, 0, nElems, (jfloat*)ARR_DATA_PTR(v));
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v); 
                 case 'D': 
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jdouble), FLOAT8OID, false);
                     (*jenv)->GetDoubleArrayRegion(jenv,arr, 0, nElems, (jdouble*)ARR_DATA_PTR(v));
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v); 
             }
         } else {
@@ -241,13 +247,17 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     if(dim2 > 0) {
                         // Copy first dim
                         (*jenv)->GetFloatArrayRegion(jenv, arr0, 0, dim2, (jfloat*)ARR_DATA_PTR(v));
+                        (*jenv)->DeleteLocalRef(jenv,arr0);
                         
                         // Copy remaining
                         for(int i = 1; i < nElems; i++) {
                             jfloatArray els =  (jfloatArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
                             (*jenv)->GetFloatArrayRegion(jenv, els, 0, dim2,  (jfloat*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jfloat)) );
+                            (*jenv)->DeleteLocalRef(jenv,els);                  
                         }
+                       
                     }
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'D':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
@@ -265,13 +275,15 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     if(dim2 > 0) {
                         // Copy first dim
                         (*jenv)->GetDoubleArrayRegion(jenv, arr0, 0, dim2, (jdouble*)ARR_DATA_PTR(v));
-                        
+                        (*jenv)->DeleteLocalRef(jenv,arr0);
                         // Copy remaining
                         for(int i = 1; i < nElems; i++) {
                             jdoubleArray els =  (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
                             (*jenv)->GetDoubleArrayRegion(jenv, els, 0, dim2,  (jdouble*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jdouble)) );
+                            (*jenv)->DeleteLocalRef(jenv,els);
                         }
                     }
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
 
                 case 'I':
@@ -290,13 +302,15 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     if(dim2 > 0) {
                         // Copy first dim
                         (*jenv)->GetIntArrayRegion(jenv, arr0, 0, dim2, (jint*)ARR_DATA_PTR(v));
-                        
+                        (*jenv)->DeleteLocalRef(jenv,arr0);
                         // Copy remaining
                         for(int i = 1; i < nElems; i++) {
                             jintArray els =  (jintArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
                             (*jenv)->GetIntArrayRegion(jenv, els, 0, dim2,  (jint*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jint)) );
+                            (*jenv)->DeleteLocalRef(jenv,els);
                         }
                     }
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
 
                 case 'J':
@@ -315,13 +329,15 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     if(dim2 > 0) {
                         // Copy first dim
                         (*jenv)->GetLongArrayRegion(jenv, arr0, 0, dim2, (jlong*)ARR_DATA_PTR(v));
-                        
+                        (*jenv)->DeleteLocalRef(jenv,arr0);
                         // Copy remaining
                         for(int i = 1; i < nElems; i++) {
                             jlongArray els =  (jlongArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
                             (*jenv)->GetLongArrayRegion(jenv, els, 0, dim2,  (jlong*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jlong)) );
+                            (*jenv)->DeleteLocalRef(jenv,els);
                         }
                     }
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
 
                 case 'S':
@@ -340,13 +356,15 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     if(dim2 > 0) {
                         // Copy first dim
                         (*jenv)->GetShortArrayRegion(jenv, arr0, 0, dim2, (jshort*)ARR_DATA_PTR(v));
-                        
+                        (*jenv)->DeleteLocalRef(jenv,arr0);
                         // Copy remaining
                         for(int i = 1; i < nElems; i++) {
                             jshortArray els =  (jshortArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
                             (*jenv)->GetShortArrayRegion(jenv, els, 0, dim2,  (jshort*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jshort)) );
+                            (*jenv)->DeleteLocalRef(jenv,els);
                         }
                     }
+                    (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
             }
         }
