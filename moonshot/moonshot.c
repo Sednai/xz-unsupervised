@@ -179,7 +179,6 @@ etest_ms(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM( ret );   
 }
 
-// INCOMPLETE
 PG_FUNCTION_INFO_V1(astrots_ms);
 Datum
 astrots_ms(PG_FUNCTION_ARGS) 
@@ -188,6 +187,21 @@ astrots_ms(PG_FUNCTION_ARGS)
     char* method_name = "astroTsReturn_ms";
     
     char* signature = "([B)Lgaia/cu7/mapping/AstroTsType;";
+    char* return_type = "O";
+
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+    
+    PG_RETURN_DATUM( ret );   
+}
+
+PG_FUNCTION_INFO_V1(bprpspectra_ms);
+Datum
+bprpspectra_ms(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "gaia/cu7/mapping/BpRpSpectraSQL_native2d";
+    char* method_name = "bprpspectraReturn_ms";
+    
+    char* signature = "([B)Lgaia/cu7/mapping/BpRpSpectraType;";
     char* return_type = "O";
 
     Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
