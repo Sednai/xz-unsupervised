@@ -185,7 +185,7 @@ Datum
 astrots_ms(PG_FUNCTION_ARGS) 
 {
     char* class_name = "gaia/cu7/mapping/AstroTsSQL_native2d";
-    char* method_name = "etest";
+    char* method_name = "astroTsReturn_ms";
     
     char* signature = "([B)Lgaia/cu7/mapping/AstroTsType;";
     char* return_type = "O";
