@@ -260,7 +260,7 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     } else
                         dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
             
-                    v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT8OID, false);
+                    v = create2dArray(nElems, dim2, sizeof(jdouble), FLOAT8OID, false);
 
                     if(dim2 > 0) {
                         // Copy first dim
