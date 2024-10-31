@@ -1,7 +1,7 @@
 #include "postgres.h"
 #include "storage/latch.h"
 
-#define MAX_WORKERS 2
+#define MAX_WORKERS 1
 #define MAX_QUEUE_LENGTH 8
 #define MAX_DATA 2097152 
 typedef struct 

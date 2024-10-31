@@ -162,6 +162,43 @@ psearch_ms_fg_gpu(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM( ret );   
 }
 
+/* TESTING AREA */
+
+PG_FUNCTION_INFO_V1(etest_ms);
+Datum
+etest_ms(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "ai/sedn/unsupervised/Kmeans";
+    char* method_name = "etest";
+    
+    char* signature = "([B)Lai/sedn/unsupervised/TestReturn2;";
+    char* return_type = "O";
+
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+    
+    PG_RETURN_DATUM( ret );   
+}
+
+// INCOMPLETE
+PG_FUNCTION_INFO_V1(astrots_ms);
+Datum
+astrots_ms(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "gaia/cu7/mapping/AstroTsSQL_native2d";
+    char* method_name = "etest";
+    
+    char* signature = "([B)Lgaia/cu7/mapping/AstroTsType;";
+    char* return_type = "O";
+
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+    
+    PG_RETURN_DATUM( ret );   
+}
+
+
+
+
+
 
 /*
     Main function to deliver tasks to bg workers and collect results
@@ -778,6 +815,18 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                 } else {
                     
                     switch(signature[i]) {
+                        case 'B':
+                            switch(pos) {
+                                case 1:
+                                    bytea* bytes  = DatumGetByteaP( PG_GETARG_DATUM(ac) );
+                                    jsize  nElems = VARSIZE(bytes) - sizeof(int32);
+                                    jbyteArray byteArray  =(*jenv)->NewByteArray(jenv,nElems);
+                                    (*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
+                                    target[ac].l = byteArray;
+                                    break;
+                                elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
+                            }
+                            break;
                         case 'J':
                             switch(pos) {
                                 case 1:

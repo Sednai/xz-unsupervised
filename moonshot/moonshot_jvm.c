@@ -19,17 +19,18 @@ char* convert_name_to_JNI_signature(char* name, char* error_msg) {
     if(name[0] == '[') {
         if(name[1] != '[') {
             switch(name[1]) {
+                case 'B':
                 case 'I':
-                    return name;
                 case 'F':
-                    return name;
                 case 'D':
                     return name;
             }
         } else {
             switch(name[2]) {
+                case 'I':
+                case 'J': 
+                case 'S':
                 case 'F':
-                    return name;
                 case 'D':
                     return name;
             }
@@ -177,11 +178,30 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                 jarray arr;
                 int nElems;
                 ArrayType* v;
+                case 'B':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr) ; 
+	                bytea* b = (bytea*)palloc(nElems + sizeof(int32));
+                    SET_VARSIZE(b, nElems + sizeof(int32));
+                    (*jenv)->GetByteArrayRegion(jenv,arr, 0, nElems, (jbyte*)VARDATA(b));
+                    return PointerGetDatum(b); 
                 case 'I':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jint), INT4OID, false);
                     (*jenv)->GetIntArrayRegion(jenv,arr, 0, nElems, (jint*)ARR_DATA_PTR(v));
+                    return PointerGetDatum(v);
+                case 'J':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                    v = createArray(nElems, sizeof(jlong), INT8OID, false);
+                    (*jenv)->GetLongArrayRegion(jenv,arr, 0, nElems, (jlong*)ARR_DATA_PTR(v));
+                    return PointerGetDatum(v);
+                case 'S':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                    v = createArray(nElems, sizeof(jshort), INT2OID, false);
+                    (*jenv)->GetShortArrayRegion(jenv,arr, 0, nElems, (jshort*)ARR_DATA_PTR(v));
                     return PointerGetDatum(v);
                 case 'F':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
@@ -238,6 +258,66 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     for(int i = 1; i < nElems; i++) {
                         jdoubleArray els =  (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
                         (*jenv)->GetDoubleArrayRegion(jenv, els, 0, dim2,  (jdouble*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jdouble)) );
+                    }
+                    
+                    return PointerGetDatum(v);
+
+                case 'I':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                
+                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
+                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+            
+                    v = create2dArray(nElems, dim2, sizeof(jint), INT4OID, false);
+
+                    // Copy first dim
+                    (*jenv)->GetIntArrayRegion(jenv, arr0, 0, dim2, (jint*)ARR_DATA_PTR(v));
+                    
+                    // Copy remaining
+                    for(int i = 1; i < nElems; i++) {
+                        jintArray els =  (jintArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                        (*jenv)->GetIntArrayRegion(jenv, els, 0, dim2,  (jint*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jint)) );
+                    }
+                    
+                    return PointerGetDatum(v);
+
+                case 'J':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                
+                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
+                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+            
+                    v = create2dArray(nElems, dim2, sizeof(jlong), INT8OID, false);
+
+                    // Copy first dim
+                    (*jenv)->GetLongArrayRegion(jenv, arr0, 0, dim2, (jlong*)ARR_DATA_PTR(v));
+                    
+                    // Copy remaining
+                    for(int i = 1; i < nElems; i++) {
+                        jlongArray els =  (jlongArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                        (*jenv)->GetLongArrayRegion(jenv, els, 0, dim2,  (jlong*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jlong)) );
+                    }
+                    
+                    return PointerGetDatum(v);
+
+                case 'S':
+                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                
+                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
+                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+            
+                    v = create2dArray(nElems, dim2, sizeof(jshort), INT2OID, false);
+
+                    // Copy first dim
+                    (*jenv)->GetShortArrayRegion(jenv, arr0, 0, dim2, (jshort*)ARR_DATA_PTR(v));
+                    
+                    // Copy remaining
+                    for(int i = 1; i < nElems; i++) {
+                        jshortArray els =  (jshortArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                        (*jenv)->GetShortArrayRegion(jenv, els, 0, dim2,  (jshort*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jshort)) );
                     }
                     
                     return PointerGetDatum(v);
@@ -562,6 +642,9 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
 char** readOptions(char* filename, int* N) {
     FILE *file;
     file = fopen(filename,"r");
+    if(file == NULL) {
+        elog(ERROR,"File %s not found: %d",filename,errno);
+    }
     char **lines = NULL;
     char *line =  NULL;
     *N = -1;
@@ -650,9 +733,9 @@ JavaVMOption* setJVMoptions(int* numOptions) {
             } else {
                 // Read from file
                 int N;
-                char buf[i-spos]; 
-                strncpy(buf,&OPTIONS[spos],i-spos);
-
+                char buf[len]; 
+                strncpy(buf,&OPTIONS[spos],len);
+                buf[len-1] = '\0';
                 char **lines =  readOptions(&buf[1],&N);
                 for(int l = 0; l < N; l++ ) {
               
