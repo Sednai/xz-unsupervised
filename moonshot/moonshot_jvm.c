@@ -230,38 +230,48 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                 
                     arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+                    if(arr0 == 0) {
+                        dim2 = 0;
+                        nElems = 1;
+                    } else
+                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
             
                     v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT4OID, false);
 
-                    // Copy first dim
-                    (*jenv)->GetFloatArrayRegion(jenv, arr0, 0, dim2, (jfloat*)ARR_DATA_PTR(v));
-                    
-                    // Copy remaining
-                    for(int i = 1; i < nElems; i++) {
-                        jfloatArray els =  (jfloatArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
-                        (*jenv)->GetFloatArrayRegion(jenv, els, 0, dim2,  (jfloat*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jfloat)) );
+                    if(dim2 > 0) {
+                        // Copy first dim
+                        (*jenv)->GetFloatArrayRegion(jenv, arr0, 0, dim2, (jfloat*)ARR_DATA_PTR(v));
+                        
+                        // Copy remaining
+                        for(int i = 1; i < nElems; i++) {
+                            jfloatArray els =  (jfloatArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                            (*jenv)->GetFloatArrayRegion(jenv, els, 0, dim2,  (jfloat*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jfloat)) );
+                        }
                     }
-                
                     return PointerGetDatum(v);
                 case 'D':
                     arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                 
                     arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+                    if(arr0 == 0) {
+                        dim2 = 0;
+                        nElems = 1;
+                    } else
+                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
             
                     v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT8OID, false);
 
-                    // Copy first dim
-                    (*jenv)->GetDoubleArrayRegion(jenv, arr0, 0, dim2, (jdouble*)ARR_DATA_PTR(v));
-                    
-                    // Copy remaining
-                    for(int i = 1; i < nElems; i++) {
-                        jdoubleArray els =  (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
-                        (*jenv)->GetDoubleArrayRegion(jenv, els, 0, dim2,  (jdouble*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jdouble)) );
+                    if(dim2 > 0) {
+                        // Copy first dim
+                        (*jenv)->GetDoubleArrayRegion(jenv, arr0, 0, dim2, (jdouble*)ARR_DATA_PTR(v));
+                        
+                        // Copy remaining
+                        for(int i = 1; i < nElems; i++) {
+                            jdoubleArray els =  (jdoubleArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                            (*jenv)->GetDoubleArrayRegion(jenv, els, 0, dim2,  (jdouble*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jdouble)) );
+                        }
                     }
-                    
                     return PointerGetDatum(v);
 
                 case 'I':
@@ -269,19 +279,24 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                 
                     arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+                    if(arr0 == 0) {
+                        dim2 = 0;
+                        nElems = 1;
+                    } else
+                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
             
                     v = create2dArray(nElems, dim2, sizeof(jint), INT4OID, false);
 
-                    // Copy first dim
-                    (*jenv)->GetIntArrayRegion(jenv, arr0, 0, dim2, (jint*)ARR_DATA_PTR(v));
-                    
-                    // Copy remaining
-                    for(int i = 1; i < nElems; i++) {
-                        jintArray els =  (jintArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
-                        (*jenv)->GetIntArrayRegion(jenv, els, 0, dim2,  (jint*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jint)) );
+                    if(dim2 > 0) {
+                        // Copy first dim
+                        (*jenv)->GetIntArrayRegion(jenv, arr0, 0, dim2, (jint*)ARR_DATA_PTR(v));
+                        
+                        // Copy remaining
+                        for(int i = 1; i < nElems; i++) {
+                            jintArray els =  (jintArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                            (*jenv)->GetIntArrayRegion(jenv, els, 0, dim2,  (jint*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jint)) );
+                        }
                     }
-                    
                     return PointerGetDatum(v);
 
                 case 'J':
@@ -289,19 +304,24 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                 
                     arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+                    if(arr0 == 0) {
+                        dim2 = 0;
+                        nElems = 1;
+                    } else
+                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
             
                     v = create2dArray(nElems, dim2, sizeof(jlong), INT8OID, false);
 
-                    // Copy first dim
-                    (*jenv)->GetLongArrayRegion(jenv, arr0, 0, dim2, (jlong*)ARR_DATA_PTR(v));
-                    
-                    // Copy remaining
-                    for(int i = 1; i < nElems; i++) {
-                        jlongArray els =  (jlongArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
-                        (*jenv)->GetLongArrayRegion(jenv, els, 0, dim2,  (jlong*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jlong)) );
+                    if(dim2 > 0) {
+                        // Copy first dim
+                        (*jenv)->GetLongArrayRegion(jenv, arr0, 0, dim2, (jlong*)ARR_DATA_PTR(v));
+                        
+                        // Copy remaining
+                        for(int i = 1; i < nElems; i++) {
+                            jlongArray els =  (jlongArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                            (*jenv)->GetLongArrayRegion(jenv, els, 0, dim2,  (jlong*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jlong)) );
+                        }
                     }
-                    
                     return PointerGetDatum(v);
 
                 case 'S':
@@ -309,19 +329,24 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     nElems = (*jenv)->GetArrayLength(jenv, arr); 
                 
                     arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
-            
+                    if(arr0 == 0) {
+                        dim2 = 0;
+                        nElems = 1;
+                    } else
+                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+                    
                     v = create2dArray(nElems, dim2, sizeof(jshort), INT2OID, false);
 
-                    // Copy first dim
-                    (*jenv)->GetShortArrayRegion(jenv, arr0, 0, dim2, (jshort*)ARR_DATA_PTR(v));
-                    
-                    // Copy remaining
-                    for(int i = 1; i < nElems; i++) {
-                        jshortArray els =  (jshortArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
-                        (*jenv)->GetShortArrayRegion(jenv, els, 0, dim2,  (jshort*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jshort)) );
+                    if(dim2 > 0) {
+                        // Copy first dim
+                        (*jenv)->GetShortArrayRegion(jenv, arr0, 0, dim2, (jshort*)ARR_DATA_PTR(v));
+                        
+                        // Copy remaining
+                        for(int i = 1; i < nElems; i++) {
+                            jshortArray els =  (jshortArray) (*jenv)->GetObjectArrayElement(jenv,arr,i); 
+                            (*jenv)->GetShortArrayRegion(jenv, els, 0, dim2,  (jshort*) (ARR_DATA_PTR(v)+i*dim2*sizeof(jshort)) );
+                        }
                     }
-                    
                     return PointerGetDatum(v);
             }
         }
