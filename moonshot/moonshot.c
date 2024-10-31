@@ -625,9 +625,13 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
             if(tupdesc != NULL) {
                 HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
                 pfree(nulls);
+                freejvalues(args, fcinfo->nargs);
+   
                 PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
             } else {
                 pfree(nulls);
+                freejvalues(args, fcinfo->nargs);
+   
                 PG_RETURN_DATUM( values[0] );
             }
         } else {
@@ -669,6 +673,9 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         elog(ERROR,"%s",error_msg);
     }
 
+    // Final cleanup
+    freejvalues(args, fcinfo->nargs);
+    
     PG_RETURN_NULL();
 }
 
@@ -689,6 +696,15 @@ jvalue PG_text_to_jvalue(text* txt) {
     return val;
 }
 
+/*
+    Helper function to release jvalues
+*/
+void freejvalues(jvalue* jvals, int N) {
+    for(int i = 0; i < N; i++) {
+        if(jvals[i].l != NULL) 
+            (*jenv)->DeleteLocalRef(jenv, jvals[i].l);
+    }
+}
 /*
     Helper function to convert arguments to jvalues for foreground worker
 */
