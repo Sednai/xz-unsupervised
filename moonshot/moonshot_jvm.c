@@ -21,6 +21,8 @@ char* convert_name_to_JNI_signature(char* name, char* error_msg) {
             switch(name[1]) {
                 case 'B':
                 case 'I':
+                case 'J':
+                case 'S':
                 case 'F':
                 case 'D':
                     return name;
