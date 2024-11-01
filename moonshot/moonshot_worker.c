@@ -50,7 +50,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
     worker_head = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
-	if (found) {
+	if (found && worker_head->n_workers > 0) {
     	return worker_head;
     }
 	
@@ -68,8 +68,6 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		dlist_push_tail(&worker_head->free_list,&worker_head->list_data[i].node);
 	}
 
-	worker_head->n_workers = 0;
-
 	for(int n = 0; n < fmin(n_workers,MAX_WORKERS); n++) {
 		BackgroundWorker worker;
 		BackgroundWorkerHandle *handle;
@@ -79,7 +77,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		memset(&worker, 0, sizeof(worker));
 		worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-		worker.bgw_restart_time = 10; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
+		worker.bgw_restart_time = BGW_NEVER_RESTART; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
 		
 		char* WORKER_LIB = GetConfigOption("ms.lib",true,true);
 		
@@ -101,7 +99,6 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 			worker.bgw_extra[9] = 1;
 		}
 
-
 		if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 			continue;
 
@@ -122,7 +119,9 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		
 		elog(WARNING,"Moonshot worker %d of %d initialized with pid %d (from %d)",(n+1),(int) fmin(n_workers,MAX_WORKERS),pid,MyProcPid);
 	}
-	
+
+	worker_head->n_workers = fmin(n_workers,MAX_WORKERS);
+
     SpinLockRelease(&worker_head->lock);
 	
 	return worker_head;
@@ -487,7 +486,9 @@ moonshot_worker_main(Datum main_arg)
 								   sizeof(worker_data_head),
 								   &found);
 	if(!found) {
-		/* initialize worker data header */
+		elog(ERROR,"Shared memory for background worker has not been initialized");
+		/*
+		// initialize worker data header 
 		memset(worker_head, 0, sizeof(worker_data_head));
 		dlist_init(&worker_head->exec_list);
 		dlist_init(&worker_head->free_list);
@@ -499,14 +500,14 @@ moonshot_worker_main(Datum main_arg)
 			dlist_push_tail(&worker_head->free_list,&worker_head->list_data[i].node);
 		}
 		worker_head->n_workers = 0;
+		*/
 	}
 	
 	SpinLockAcquire(&worker_head->lock); 
 	worker_head->latch[workerid] = MyLatch;
 	// Set pid (due to potential restart)
 	worker_head->pid[workerid] = MyProcPid;
-	worker_head->n_workers++;
-
+	
 	elog(WARNING,"[DEBUG]: BG worker %s init shared memory found: %d | pid: %d, total: %d | SPI: %d",buf,(int) found,worker_head->pid[workerid],worker_head->n_workers,activeSPI);
 
 	SpinLockRelease(&worker_head->lock);

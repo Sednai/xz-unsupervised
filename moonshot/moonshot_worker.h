@@ -1,5 +1,6 @@
 #include "postgres.h"
 #include "storage/latch.h"
+#include "postmaster/bgworker.h"
 
 #define MAX_WORKERS 4
 #define MAX_QUEUE_LENGTH 64

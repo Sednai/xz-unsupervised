@@ -268,7 +268,7 @@ bprpspectra_bg_ms(PG_FUNCTION_ARGS)
 Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, bool globalWorker, char* class_name, char* method_name, char* signature, char* return_type) {
 
     // Start workers if not started yet
-    if(worker_head == NULL) {
+    if(worker_head == NULL || worker_head->n_workers == 0) {
         worker_head = launch_dynamic_workers(n_workers, need_SPI, globalWorker);
         pg_usleep(5000L);		/* 5msec */
     } 
@@ -1209,6 +1209,7 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
                             &found);
     if(!found) {
         worker_head->n_workers = 0;
+        elog(ERROR,"Can not restart workers if not started yet");
     }
 
     SpinLockAcquire(&worker_head->lock);
@@ -1216,6 +1217,7 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
     int n_workers = worker_head->n_workers;
     
     if(n_workers == 0) {
+        SpinLockRelease(&worker_head->lock);   
         elog(ERROR,"Can not restart workers if not started yet");
     }
     
@@ -1229,9 +1231,9 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
     PG_RETURN_INT32(ret);
 }
 
-PG_FUNCTION_INFO_V1(ms_restart_global_workers);
+PG_FUNCTION_INFO_V1(ms_kill_global_workers);
 Datum
-ms_restart_global_workers(PG_FUNCTION_ARGS) {
+ms_kill_global_workers(PG_FUNCTION_ARGS) {
    
     // Get global data structure
     char buf[BGW_MAXLEN];
@@ -1243,6 +1245,7 @@ ms_restart_global_workers(PG_FUNCTION_ARGS) {
                                 &found);
     if(!found) {
         worker_head->n_workers = 0;
+        elog(ERROR,"Can not restart workers if not started yet (shared mem blank)");
     }
     
     SpinLockAcquire(&worker_head->lock);
@@ -1250,18 +1253,32 @@ ms_restart_global_workers(PG_FUNCTION_ARGS) {
     int n_workers = worker_head->n_workers;
     
     if(n_workers == 0) {
-        elog(ERROR,"Can not restart workers if not started yet");
+        SpinLockRelease(&worker_head->lock);   
+        elog(ERROR,"Can not restart workers if not started yet (n_workers=0)");
     }
     
     int ret = 0;
     for(int r = 0; r < n_workers; r++) {
-        ret += kill( worker_head->pid[r], SIGTERM);
+        if(worker_head->pid[r] != 0) {
+            int err = kill( worker_head->pid[r], SIGTERM);
+            if(err == 0) {
+                ret +=1;
+                worker_head->pid[r] = 0;
+            } else 
+                elog(WARNING,"Global worker %d with pid %d could not be killed (%d)",r,worker_head->pid[r],err);
+            
+        } else 
+            elog(WARNING,"Global worker %d with invalid pid",r);
+        
     }
-  
+    
+    worker_head->n_workers = 0;
+    
     SpinLockRelease(&worker_head->lock);   
     
     PG_RETURN_INT32(ret);
 }
+
 
 // Taken from PG and extended
 void
