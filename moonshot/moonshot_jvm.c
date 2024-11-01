@@ -124,17 +124,36 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
     if(sig[0] != '[') {
         // Natives
         switch(sig[0]) {
+            case 'Z':       
+               (*jenv)->SetBooleanField(jenv, *obj , *fid, DatumGetBool( *dat ) );
+                return 0;
             case 'I':       
                (*jenv)->SetIntField(jenv, *obj , *fid, DatumGetInt32( *dat ) );
                 return 0;
             case 'J':       
                 (*jenv)->SetLongField(jenv, *obj , *fid, DatumGetInt64( *dat ) );
                 return 0;
+            case 'S':       
+               (*jenv)->SetShortField(jenv, *obj , *fid, DatumGetInt16( *dat ) );
+                return 0;
+            case 'D':       
+               (*jenv)->SetDoubleField(jenv, *obj , *fid, DatumGetFloat8( *dat ) );
+                return 0;
+            case 'F':       
+               (*jenv)->SetDoubleField(jenv, *obj , *fid, DatumGetFloat4( *dat ) );
+                return 0;
         }
     } else {
         if(sig[1] != '[') {
             // 1D arrays
             switch(sig[1]) {
+                case 'B':
+                    bytea* bytes  = DatumGetByteaP( *dat );
+                    jsize  nElems = VARSIZE(bytes) - sizeof(int32);
+                    jbyteArray byteArray  =(*jenv)->NewByteArray(jenv,nElems);
+                    (*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
+                    (*jenv)->SetObjectField(jenv, *obj ,*fid, byteArray );
+                    return 0;                              
                 case 'D':
                     ArrayType* v = DatumGetArrayTypeP( *dat );
                     if(!ARR_HASNULL(v)) {
@@ -678,7 +697,15 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
     return 0;
 }
 
-
+/*
+    Helper function to release jvalues
+*/
+void freejvalues(jvalue* jvals, int N) {
+    for(int i = 0; i < N; i++) {
+        if(jvals[i].l != NULL) 
+            (*jenv)->DeleteLocalRef(jenv, jvals[i].l);
+    }
+}
 
 /*
     Read JVM options from file

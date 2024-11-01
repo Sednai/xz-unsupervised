@@ -150,6 +150,14 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 				// 1D arrays
 				ArrayType* v;
 				Datum arg;
+				case 'B':
+					arg = datumDeSerialize(&pos, &isnull);
+					bytea* bytes  = DatumGetByteaP( arg );
+					jsize  nElems = VARSIZE(bytes) - sizeof(int32);
+					jbyteArray byteArray  =(*jenv)->NewByteArray(jenv,nElems);
+					(*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
+					val.l = byteArray;
+					break;
 				case 'J':
 					arg = datumDeSerialize(&pos, &isnull);
 					v = DatumGetArrayTypeP(arg);
@@ -687,6 +695,9 @@ moonshot_worker_main(Datum main_arg)
 		if(jfr == 0) {			
 			jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args, entry->data);
 		} 
+
+		// Release args
+		freejvalues(args, entry->n_args);
 
 		// Check for exception
 		if( jfr > 0 ) {

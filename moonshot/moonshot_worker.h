@@ -1,9 +1,9 @@
 #include "postgres.h"
 #include "storage/latch.h"
 
-#define MAX_WORKERS 1
-#define MAX_QUEUE_LENGTH 8
-#define MAX_DATA 2097152 
+#define MAX_WORKERS 4
+#define MAX_QUEUE_LENGTH 64
+#define MAX_DATA 2097152*2 
 typedef struct 
 {
     dlist_node node;
@@ -32,6 +32,6 @@ typedef struct
 } worker_data_head;
 
 
-worker_data_head* launch_dynamic_workers(int n_workers, bool needSPI, bool globalWorker);
+worker_data_head* launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker);
 Datum datumDeSerialize(char **address, bool *isnull);
 void prepareErrorMsg(jthrowable exh, char* target, int cutoff);
