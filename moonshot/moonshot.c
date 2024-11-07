@@ -504,7 +504,7 @@ int argSerializer(char* target, char* signature, Datum* args) {
                         target[0] = signature[i];
                         target[1] = '\0';
                         target+=2;
-                        datumSerialize(args[ac], false, false, -1, &target);
+                        datumSerialize( PG_DETOAST_DATUM( args[ac] ), false, false, -1, &target);
                     } else {
                         if(signature[i] == '[') {
                             elog(ERROR,"2d arrays as input to bg worker not supported yet");

@@ -2,9 +2,9 @@
 #include "storage/latch.h"
 #include "postmaster/bgworker.h"
 
-#define MAX_WORKERS 4
-#define MAX_QUEUE_LENGTH 64
-#define MAX_DATA 2097152*2 
+#define MAX_WORKERS 1
+#define MAX_QUEUE_LENGTH 16
+#define MAX_DATA 2097152*10
 typedef struct 
 {
     dlist_node node;

@@ -725,7 +725,7 @@ moonshot_worker_main(Datum main_arg)
 			// Prepare return
 			char* data = entry->data;
 			for(int i = 0; i < entry->n_return; i++) {
-				datumSerialize(values[i], false, primitive[i],-1, &data);
+				datumSerialize( PG_DETOAST_DATUM( values[i] ) , false, primitive[i],-1, &data);
 			}		
 		}
 
@@ -834,52 +834,3 @@ datumDeSerialize(char **address, bool *isnull)
     return PointerGetDatum(d);
 }
 
-void
-datumSerializer(Datum value, bool isnull, bool typByVal, int typLen,
-               char **start_address)
-{// #lizard forgives
-    ExpandedObjectHeader *eoh = NULL;
-    int            header;
-
-    /* Write header word. */
-    if (isnull)
-        header = -2;
-    else if (typByVal)
-        header = -1;
-    else if (typLen == -1 &&
-             VARATT_IS_EXTERNAL_EXPANDED(DatumGetPointer(value)))
-    {
-        eoh = DatumGetEOHP(value);
-        header = EOH_get_flat_size(eoh);
-    }
-    else
-        header = datumGetSize(value, typByVal, typLen);
-
-    memcpy(*start_address, &header, sizeof(int));
-    *start_address += sizeof(int);
-    
-    //elog(WARNING,"[XZDEBUG](datumSerialize): size %d",header);
-
-    /* If not null, write payload bytes. */
-    if (!isnull)
-    {
-        if (typByVal)
-        {
-            memcpy(*start_address, &value, sizeof(Datum));
-            *start_address += sizeof(Datum);
-        }
-        else if (eoh)
-        {
-            EOH_flatten_into(eoh, (void *) *start_address, header);
-            *start_address += header;
-        }
-        else
-        {
-            memcpy(*start_address, DatumGetPointer(value), header);
-            *start_address += header;
-            
-            //elog(WARNING,"[XZDEBUG](datumSerialize): copied");
-
-        }
-    }
-}
