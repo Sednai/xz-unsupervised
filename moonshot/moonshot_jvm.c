@@ -190,6 +190,8 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                 return Float4GetDatum(  (*jenv)->GetFloatField(jenv,data,fid) );
             case 'D':
                 return Float8GetDatum(  (*jenv)->GetDoubleField(jenv,data,fid) );
+            case 'Z':
+                return BooleanGetDatum( (*jenv)->GetBooleanField(jenv,data,fid) );
         }
     } else {
         // Native arrays
@@ -470,7 +472,20 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         values[0] = Float4GetDatum( ret );
     
         return 0;
-
+    
+    } else if(strcmp(return_type, "Z") == 0) {
+    
+        jboolean ret = (*jenv)->CallStaticBooleanMethodA(jenv, clazz, methodID, args);
+        
+        // Catch exception
+        if( (*jenv)->ExceptionCheck(jenv) ) {
+            return 1;
+        }
+        
+        primitive[0] = true;
+        values[0] = BooleanGetDatum( ret );
+    
+        return 0;
     /*} 
         // TO BE DONE ...
         // Problem for BG worker: limited space in queue package -> Distribute over several

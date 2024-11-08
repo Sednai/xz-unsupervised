@@ -226,6 +226,21 @@ astrots_bg_ms(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM( ret );   
 }
 
+PG_FUNCTION_INFO_V1(bprpspectra_veri_ms);
+Datum
+bprpspectra_veri_ms(PG_FUNCTION_ARGS) 
+{
+    char* class_name = "gaia/cu7/mapping/BpRpSpectraSQL_native2d";
+    char* method_name = "bprpspectraVerification_ms";
+    
+    char* signature = "([B)Z";
+    char* return_type = "Z";
+
+    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, return_type);
+    
+    PG_RETURN_DATUM( ret );   
+}
+
 
 PG_FUNCTION_INFO_V1(bprpspectra_ms);
 Datum
