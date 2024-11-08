@@ -191,7 +191,7 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
             case 'D':
                 return Float8GetDatum(  (*jenv)->GetDoubleField(jenv,data,fid) );
             case 'Z':
-                return BooleanGetDatum( (*jenv)->GetBooleanField(jenv,data,fid) );
+                return BoolGetDatum( (*jenv)->GetBooleanField(jenv,data,fid) );
         }
     } else {
         // Native arrays
@@ -483,7 +483,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         }
         
         primitive[0] = true;
-        values[0] = BooleanGetDatum( ret );
+        values[0] = BoolGetDatum( ret );
     
         return 0;
     /*} 
