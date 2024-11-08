@@ -197,71 +197,74 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
         // Native arrays
         *primitive = false;
         if(sig[1] != '[') {
+            jarray arr;
+            int nElems;
+            ArrayType* v;
+            arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+            if(arr != 0) {
+                nElems = (*jenv)->GetArrayLength(jenv, arr) ; 
+            } else {
+                snprintf(error_msg, 256, "Null array supplied for %s",sig);
+                return NULL;
+            }
+
             switch(sig[1]) {
-                jarray arr;
-                int nElems;
-                ArrayType* v;
                 case 'B':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr) ; 
-	                bytea* b = (bytea*)palloc(nElems + sizeof(int32));
+                    bytea* b = (bytea*)palloc(nElems + sizeof(int32));
                     SET_VARSIZE(b, nElems + sizeof(int32));
                     (*jenv)->GetByteArrayRegion(jenv,arr, 0, nElems, (jbyte*)VARDATA(b));
                     (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(b); 
                 case 'I':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jint), INT4OID, false);
                     (*jenv)->GetIntArrayRegion(jenv,arr, 0, nElems, (jint*)ARR_DATA_PTR(v));
                     (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'J':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jlong), INT8OID, false);
                     (*jenv)->GetLongArrayRegion(jenv,arr, 0, nElems, (jlong*)ARR_DATA_PTR(v));
                     (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'S':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jshort), INT2OID, false);
                     (*jenv)->GetShortArrayRegion(jenv,arr, 0, nElems, (jshort*)ARR_DATA_PTR(v));
                     (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'F':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jfloat), FLOAT4OID, false);
                     (*jenv)->GetFloatArrayRegion(jenv,arr, 0, nElems, (jfloat*)ARR_DATA_PTR(v));
                     (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v); 
                 case 'D': 
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
                     v = createArray(nElems, sizeof(jdouble), FLOAT8OID, false);
                     (*jenv)->GetDoubleArrayRegion(jenv,arr, 0, nElems, (jdouble*)ARR_DATA_PTR(v));
                     (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v); 
             }
         } else {
+            jarray arr;
+            int nElems;
+            jarray arr0;
+            jsize dim2;
+            ArrayType* v;
+           
+            arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
+            if(arr != 0) { 
+                nElems = (*jenv)->GetArrayLength(jenv, arr); 
+                arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
+            } else {
+                nElems = 1;
+                arr0 = 0;
+            }
+
+            if(arr0 == 0) {
+                dim2 = 0;
+                nElems = 1;
+            } else
+                dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
+            
             switch(sig[2]) {
-                jarray arr;
-                int nElems;
-                jarray arr0;
-                jsize dim2;
-                ArrayType* v;
                 case 'F':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
-                
-                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    if(arr0 == 0) {
-                        dim2 = 0;
-                        nElems = 1;
-                    } else
-                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
             
                     v = create2dArray(nElems, dim2, sizeof(jfloat), FLOAT4OID, false);
 
@@ -281,15 +284,6 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     (*jenv)->DeleteLocalRef(jenv,arr);
                     return PointerGetDatum(v);
                 case 'D':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
-                
-                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    if(arr0 == 0) {
-                        dim2 = 0;
-                        nElems = 1;
-                    } else
-                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
             
                     v = create2dArray(nElems, dim2, sizeof(jdouble), FLOAT8OID, false);
 
@@ -308,16 +302,7 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     return PointerGetDatum(v);
 
                 case 'I':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
-                
-                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    if(arr0 == 0) {
-                        dim2 = 0;
-                        nElems = 1;
-                    } else
-                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
-            
+                 
                     v = create2dArray(nElems, dim2, sizeof(jint), INT4OID, false);
 
                     if(dim2 > 0) {
@@ -335,16 +320,7 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     return PointerGetDatum(v);
 
                 case 'J':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
-                
-                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    if(arr0 == 0) {
-                        dim2 = 0;
-                        nElems = 1;
-                    } else
-                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
-            
+              
                     v = create2dArray(nElems, dim2, sizeof(jlong), INT8OID, false);
 
                     if(dim2 > 0) {
@@ -362,15 +338,6 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
                     return PointerGetDatum(v);
 
                 case 'S':
-                    arr = (jarray) (*jenv)->GetObjectField(jenv,data,fid);
-                    nElems = (*jenv)->GetArrayLength(jenv, arr); 
-                
-                    arr0 = (jarray) (*jenv)->GetObjectArrayElement(jenv,arr,0); 
-                    if(arr0 == 0) {
-                        dim2 = 0;
-                        nElems = 1;
-                    } else
-                        dim2 =  (*jenv)->GetArrayLength(jenv, arr0); 
                     
                     v = create2dArray(nElems, dim2, sizeof(jshort), INT2OID, false);
 
