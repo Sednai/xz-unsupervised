@@ -204,41 +204,52 @@ Datum build_datum_from_return_field(bool* primitive, jobject data, jclass cls, c
             if(arr != 0) {
                 nElems = (*jenv)->GetArrayLength(jenv, arr) ; 
             } else {
-                snprintf(error_msg, 256, "Null array supplied for %s",sig);
-                return NULL;
+                nElems = 0;
             }
 
             switch(sig[1]) {
                 case 'B':
                     bytea* b = (bytea*)palloc(nElems + sizeof(int32));
                     SET_VARSIZE(b, nElems + sizeof(int32));
-                    (*jenv)->GetByteArrayRegion(jenv,arr, 0, nElems, (jbyte*)VARDATA(b));
-                    (*jenv)->DeleteLocalRef(jenv,arr);
+                    if(nElems > 0) {
+                        (*jenv)->GetByteArrayRegion(jenv,arr, 0, nElems, (jbyte*)VARDATA(b));
+                        (*jenv)->DeleteLocalRef(jenv,arr);
+                    }
                     return PointerGetDatum(b); 
                 case 'I':
                     v = createArray(nElems, sizeof(jint), INT4OID, false);
-                    (*jenv)->GetIntArrayRegion(jenv,arr, 0, nElems, (jint*)ARR_DATA_PTR(v));
-                    (*jenv)->DeleteLocalRef(jenv,arr);
+                    if(nElems > 0) {
+                        (*jenv)->GetIntArrayRegion(jenv,arr, 0, nElems, (jint*)ARR_DATA_PTR(v));
+                        (*jenv)->DeleteLocalRef(jenv,arr);
+                    }
                     return PointerGetDatum(v);
                 case 'J':
                     v = createArray(nElems, sizeof(jlong), INT8OID, false);
-                    (*jenv)->GetLongArrayRegion(jenv,arr, 0, nElems, (jlong*)ARR_DATA_PTR(v));
-                    (*jenv)->DeleteLocalRef(jenv,arr);
+                    if(nElems > 0) {
+                        (*jenv)->GetLongArrayRegion(jenv,arr, 0, nElems, (jlong*)ARR_DATA_PTR(v));
+                        (*jenv)->DeleteLocalRef(jenv,arr);
+                    }
                     return PointerGetDatum(v);
                 case 'S':
                     v = createArray(nElems, sizeof(jshort), INT2OID, false);
-                    (*jenv)->GetShortArrayRegion(jenv,arr, 0, nElems, (jshort*)ARR_DATA_PTR(v));
-                    (*jenv)->DeleteLocalRef(jenv,arr);
+                    if(nElems > 0) {
+                        (*jenv)->GetShortArrayRegion(jenv,arr, 0, nElems, (jshort*)ARR_DATA_PTR(v));
+                        (*jenv)->DeleteLocalRef(jenv,arr);
+                    }
                     return PointerGetDatum(v);
                 case 'F':
                     v = createArray(nElems, sizeof(jfloat), FLOAT4OID, false);
-                    (*jenv)->GetFloatArrayRegion(jenv,arr, 0, nElems, (jfloat*)ARR_DATA_PTR(v));
-                    (*jenv)->DeleteLocalRef(jenv,arr);
+                    if(nElems > 0) {
+                        (*jenv)->GetFloatArrayRegion(jenv,arr, 0, nElems, (jfloat*)ARR_DATA_PTR(v));
+                        (*jenv)->DeleteLocalRef(jenv,arr);
+                    }
                     return PointerGetDatum(v); 
                 case 'D': 
                     v = createArray(nElems, sizeof(jdouble), FLOAT8OID, false);
-                    (*jenv)->GetDoubleArrayRegion(jenv,arr, 0, nElems, (jdouble*)ARR_DATA_PTR(v));
-                    (*jenv)->DeleteLocalRef(jenv,arr);
+                    if(nElems > 0) {
+                        (*jenv)->GetDoubleArrayRegion(jenv,arr, 0, nElems, (jdouble*)ARR_DATA_PTR(v));
+                        (*jenv)->DeleteLocalRef(jenv,arr);
+                    }
                     return PointerGetDatum(v); 
             }
         } else {
