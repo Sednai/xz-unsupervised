@@ -31,10 +31,10 @@ public class DBscan {
 
 	public static dbscan_batch_ret dbscan_batch_ms(String tabname, String colname, String idcolname, String returntabname, int batchsize, float eps, int minPts, long lastID, int C) {
 		
-		System.out.println("ENTRY: "+batchsize+" "+eps+" "+minPts+" "+lastID+" "+C);
+		//System.out.println("ENTRY: "+batchsize+" "+eps+" "+minPts+" "+lastID+" "+C);
 		
 		Moonshot moonshot = new Moonshot();
-		System.out.println("Moonshot init");
+		//System.out.println("Moonshot init");
 		
 		try {
 			long tic;
@@ -76,7 +76,7 @@ public class DBscan {
 			
 			toc = System.currentTimeMillis();
 			
-			System.out.println("[RT](A):"+(toc-tic));
+			//System.out.println("[RT](A):"+(toc-tic));
 		
 			tic = System.currentTimeMillis();
 				
@@ -108,11 +108,11 @@ public class DBscan {
 			
 				toc = System.currentTimeMillis();
 				
-				System.out.println("[RT](B):"+(toc-tic));
+				//System.out.println("[RT](B):"+(toc-tic));
 			
 				
 				// Loop over points and query for neighbors		
-				System.out.println("[DEBUG] Loop over batch points ("+bqc+","+bpoints.size()+","+M.size()+","+fc+","+fc2+")");
+				//System.out.println("[DEBUG] Loop over batch points ("+bqc+","+bpoints.size()+","+M.size()+","+fc+","+fc2+")");
 				int pmax=0;
 				
 				for (Long key : bpoints) {
@@ -203,7 +203,7 @@ public class DBscan {
 						}
 					}
 				}	
-				System.out.println("[DEBUG](Serialize) batch, C: "+C+" pmax: "+pmax);				
+				//System.out.println("[DEBUG](Serialize) batch, C: "+C+" pmax: "+pmax);				
 			}
 		
 			// Serialize remaining cache to return table
@@ -217,14 +217,14 @@ public class DBscan {
 		R.C = C;
 		R.lastID = lastID;
 		
-		System.out.println("[DEBUG](batch) ***end: "+lastID+" C: "+C);
+		//System.out.println("[DEBUG](batch) ***end: "+lastID+" C: "+C);
 		
 		return R;
 	}
 	
 	public static boolean dbscan_batch(String tabname, String colname, String idcolname, String returntabname, int batchsize, float eps, int minPts, long lastID, int C, ResultSet receiver) throws SQLException {
 		Connection conn   = DriverManager.getConnection(m_url);
-		System.out.println("[DEBUG](batch) ***start: "+lastID+" C: "+C+"(eps: "+eps+", minPts: "+minPts+")");
+		//System.out.println("[DEBUG](batch) ***start: "+lastID+" C: "+C+"(eps: "+eps+", minPts: "+minPts+")");
 		// Get sources
 		String cmd = "select "+idcolname+",class"+" from "+returntabname+" where "+idcolname+" > "+lastID+" order by "+idcolname+" asc limit "+batchsize;
 		PreparedStatement stmt = conn.prepareStatement(cmd);
@@ -282,7 +282,7 @@ public class DBscan {
 			
 			// Loop over points and query for neighbors
 				
-			System.out.println("[DEBUG] Loop over batch points ("+bqc+","+bpoints.size()+","+M.size()+","+fc+","+fc2+")");
+			//System.out.println("[DEBUG] Loop over batch points ("+bqc+","+bpoints.size()+","+M.size()+","+fc+","+fc2+")");
 			int pmax=0;
 			for (Long key : bpoints) {
 				
@@ -372,7 +372,7 @@ public class DBscan {
 					}
 				}
 			}	
-			System.out.println("[DEBUG](Serialize) batch, C: "+C+" pmax: "+pmax);
+			//System.out.println("[DEBUG](Serialize) batch, C: "+C+" pmax: "+pmax);
 				
 		}
 		
@@ -384,7 +384,7 @@ public class DBscan {
 		
 		conn.close();
 		
-		System.out.println("[DEBUG](batch) ***end: "+lastID+" C: "+C);
+		//System.out.println("[DEBUG](batch) ***end: "+lastID+" C: "+C);
 		
 		return true;
 	}		
@@ -410,7 +410,7 @@ public class DBscan {
 		long Nbatch = Math.ceilDiv(Ntotal,batchsize);
 		long lastID = -1;
 		int C = 0;
-		System.out.println("[DEBUG](dbscan) Nbatch: "+Nbatch);
+		//System.out.println("[DEBUG](dbscan) Nbatch: "+Nbatch);
 		
 		for(long i = 0; i < Nbatch; i++) {
 			//dbscan_batch(tabname,colname,idcolname,returntabname,batchsize,eps,minPts,lastID,C);	
@@ -442,7 +442,7 @@ public class DBscan {
 			stmt.execute(cmd);
 		}
 	
-		System.out.println("[DEBUG](serializeCache) -> "+c+" of "+L.size());
+		//System.out.println("[DEBUG](serializeCache) -> "+c+" of "+L.size());
 		
 		return c;
 	}
@@ -467,7 +467,7 @@ public class DBscan {
 			ms.execute_nc(cmd);
 		}
 	
-		System.out.println("[DEBUG](serializeCache) -> "+c+" of "+L.size());
+		//System.out.println("[DEBUG](serializeCache) -> "+c+" of "+L.size());
 		
 		return c;
 	}
@@ -497,7 +497,7 @@ public class DBscan {
 			
 			stmt.execute(cmd);
 		}
-		System.out.println("[DEBUG](serializeCache) -> "+c+" of "+M.size());
+		//System.out.println("[DEBUG](serializeCache) -> "+c+" of "+M.size());
 		
 		return c;
 	}
@@ -524,7 +524,7 @@ public class DBscan {
 			
 			ms.execute_nc(cmd);
 		}
-		System.out.println("[DEBUG](serializeCache) -> "+c+" of "+M.size());
+		//System.out.println("[DEBUG](serializeCache) -> "+c+" of "+M.size());
 		
 		return c;
 	}
@@ -549,12 +549,14 @@ public class DBscan {
 		
 		
 		// For speed: 1. get only sourceids
-		String cmd = "select "+idcolname+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
+		//String cmd = "select "+idcolname+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
+		String cmd = "select "+idcolname+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <!> ('"+vs+"',-1,"+eps+")"; // Note: With < 2 not original dbscan as minPts counted differently
+		//String cmd = "select "+idcolname+" from "+tabname+" ORDER BY "+colname+" <!> ('"+vs+"',-1,"+eps+")"; // Note: With < 2 not original dbscan as minPts counted differently
 		
 		// Debug
-		String tmp = explain(conn,cmd);
-		System.out.println("QUERY: "+cmd);
-		System.out.println("EXP: "+tmp);
+		//String tmp = explain(conn,cmd);
+		//System.out.println("QUERY: "+cmd);
+		//System.out.println("EXP: "+tmp);
 		
 		long tic = System.currentTimeMillis();
 
@@ -579,7 +581,7 @@ public class DBscan {
 			}
 		}
 		long toc = System.currentTimeMillis();
-		System.out.println("[TRT]: "+(toc-tic));
+		//System.out.println("[TRT]: "+(toc-tic));
 		
 		// 2. Get missing data
 		if(c > 0) {
@@ -611,7 +613,12 @@ public class DBscan {
 		// ToDo: Try to get vector info via query ! <- Prime suspect is serialization 
 		// <- Try the strange query type K. likes
 		
-		String cmd = "select "+idcolname+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
+		//String cmd = "select "+idcolname+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <-> '"+vs+"'"; // Note: With < 2 not original dbscan as minPts counted differently
+		String cmd = "select "+idcolname+" from "+tabname+" where "+colname+" <-> '"+vs+"' < "+eps+" ORDER BY "+colname+" <!> ('"+vs+"',-1,"+eps+")"; // Note: With < 2 not original dbscan as minPts counted differently
+		
+		// Debug
+		//System.out.println("QUERY: "+cmd);
+				
 		//System.out.println(cmd);
 		ms.execute_nc(cmd);		
 		//long toc = System.currentTimeMillis();

@@ -15,5 +15,6 @@ public class TestReturn2 extends MoonshotReturn {
 	public short[][] Test2;
 	public long[][] Test3;
 	public byte[] Test4;
+	public int[] Test5;
 }
 

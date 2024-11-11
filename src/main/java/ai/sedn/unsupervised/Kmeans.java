@@ -143,6 +143,8 @@ public class Kmeans {
 		
 		byte[] D = new byte[3];
 		
+		int[] E = null;
+		
 		A[0][0] = 1;
 		A[0][1] = 2;
 		A[1][0] = 3;
@@ -165,13 +167,54 @@ public class Kmeans {
 		
 		
 		TestReturn2 R = new TestReturn2();
-		R.Test1 = A;
+		R.Test1 = null;
 		R.Test2 = B;
 		R.Test3 = C;
 		R.Test4 = BIN;
+		R.Test5 = null;
 		
 		return R;
 	}
+	
+	public static boolean etest_plj(byte[] BIN,ResultSet receiver) throws SQLException {
+		System.out.println("ENTRY OK");
+
+		int[][] A = new int[2][2];
+		short[][] B = new short[2][2];
+		long[][] C = new long[2][2];
+		
+		byte[] D = new byte[3];
+		
+		A[0][0] = 1;
+		A[0][1] = 2;
+		A[1][0] = 3;
+		A[1][1] = 4;
+		
+		B[0][0] = -1;
+		B[0][1] = -2;
+		B[1][0] = -3;
+		B[1][1] = -4;
+		
+		
+		C[0][0] = 1000;
+		C[0][1] = 2000;
+		C[1][0] = 3000;
+		C[1][1] = 4000;
+		
+		D[0] = 1;
+		D[1] = 2;
+		D[2] = 3;
+		
+
+		// Return
+		receiver.updateObject(1, null);
+		receiver.updateObject(2, B);
+		receiver.updateObject(3, C);
+		receiver.updateObject(4, C);
+			
+		return true;
+	}
+	
 	
 	/*
 	public static int atest(TestReturn[] A) throws SQLException {
