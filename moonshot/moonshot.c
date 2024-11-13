@@ -661,7 +661,9 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
     }
     // Prep arguments
     jvalue args[fcinfo->nargs];
-	argToJava(args, signature, fcinfo);
+    bool argprim[fcinfo->nargs];
+    memset(argprim, 0, sizeof(argprim));
+    argToJava(args, signature, fcinfo, argprim);
     
     // Call java function
     activeSPI = need_SPI;
@@ -680,6 +682,8 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         Datum values[natts];
         bool* nulls = palloc0( natts * sizeof( bool ) );
         bool primitive[natts];
+        memset(primitive, 0, sizeof(primitive));
+		
         jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args, error_msg);
        
         if(jfr == 0) {     
@@ -688,13 +692,11 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
             if(tupdesc != NULL) {
                 HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
                 pfree(nulls);
-                freejvalues(args, fcinfo->nargs);
-   
+                freejvalues(args, argprim, fcinfo->nargs);
                 PG_RETURN_DATUM( HeapTupleGetDatum(tuple ));
             } else {
                 pfree(nulls);
-                freejvalues(args, fcinfo->nargs);
-   
+                freejvalues(args, argprim, fcinfo->nargs);
                 PG_RETURN_DATUM( values[0] );
             }
         } else {
@@ -737,8 +739,8 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
     }
 
     // Final cleanup
-    freejvalues(args, fcinfo->nargs);
-    
+    freejvalues(args, argprim, fcinfo->nargs);
+   
     PG_RETURN_NULL();
 }
 
@@ -762,7 +764,7 @@ jvalue PG_text_to_jvalue(text* txt) {
 /*
     Helper function to convert arguments to jvalues for foreground worker
 */
-int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
+int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* argprim) {
     bool openrb = false;
     bool openo = false;
     bool opensb = false;
@@ -773,6 +775,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
     
     // Loop over signature and detect arguments
     for(int i = 0; i < strlen(signature); i++) {
+        
         if(signature[i] == '(') {
             openrb = true;
             continue;
@@ -810,6 +813,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
 
                     if(strcmp("Ljava/lang/String;",buf) == 0) {
                         target[ac] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(ac) ));
+                        argprim[ac] = true;
                     } else {
                         // Map to composite type
                         // ToDo: Move to helper function ?
@@ -877,6 +881,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                 
                                 if(res == 0) {                                
                                     target[ac].l = cobj;
+                                    argprim[ac] = true;
                                 } else {
                                     elog(ERROR,"Unknown error in setting composite type");
                                 }
@@ -907,6 +912,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                     jbyteArray byteArray  =(*jenv)->NewByteArray(jenv,nElems);
                                     (*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
                                     target[ac].l = byteArray;
+                                    argprim[ac] = true;
                                     break;
                                 elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
                             }
@@ -920,6 +926,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                         jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
                                         (*jenv)->SetLongArrayRegion(jenv,longArray, 0, nElems, (jlong*)ARR_DATA_PTR(v));
                                         target[ac].l = longArray;
+                                        argprim[ac] = true;
                                     } else {
                                         elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
                                     }
@@ -936,6 +943,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                         jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
                                         (*jenv)->SetDoubleArrayRegion(jenv,doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
                                         target[ac].l = doubleArray;
+                                        argprim[ac] = true;
                                     } else {
                                         elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
                                     }
@@ -955,6 +963,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                             (*jenv)->DeleteLocalRef(jenv,innerArray);
                                         }    
                                         target[ac].l = objectArray;
+                                        argprim[ac] = true;
                                     } else {
                                         elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
                                     }
@@ -1085,7 +1094,8 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
                                 }
                                          
                                 target[ac].l = array;
-
+                                argprim[ac] = true;
+                                
                                 // Cleanup
                                 for(int i = 0; i < len; i++) {
                                     (*jenv)->ReleaseStringUTFChars(jenv, jstr2[i], typename[i]);
@@ -1107,6 +1117,9 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo) {
             } else {   
                 // Convert native argument
                 switch(signature[i]) {
+                    case 'S':
+                        target[ac].s = (jshort) PG_GETARG_INT16(ac);  
+                        break;
                     case 'I':
                         target[ac].i = (jint) PG_GETARG_INT32(ac);  
                         break;

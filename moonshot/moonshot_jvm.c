@@ -693,10 +693,17 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
 /*
     Helper function to release jvalues
 */
-void freejvalues(jvalue* jvals, int N) {
+void freejvalues(jvalue* jvals, bool* argprim, int N) {
+    jclass sclazz = (*jenv)->FindClass(jenv, "Ljava/lang/String;");
+
     for(int i = 0; i < N; i++) {
-        if(jvals[i].l != NULL) 
-            (*jenv)->DeleteLocalRef(jenv, jvals[i].l);
+        if(argprim[i]) {
+            if( (*jenv)->IsInstanceOf(jenv, jvals[i].l, sclazz ) ) {
+               (*jenv)->ReleaseStringUTFChars(jenv, jvals[i].l, (*jenv)->GetStringUTFChars(jenv,jvals[i].l,false) );
+            } else {
+                (*jenv)->DeleteLocalRef(jenv, jvals[i].l);
+            }
+        }
     }
 }
 

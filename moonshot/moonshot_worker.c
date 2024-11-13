@@ -132,30 +132,29 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	Build Java args from serialized datums
 */
 int 
-argDeSerializer(jvalue* args, worker_exec_entry* entry) {
+argDeSerializer(jvalue* args, bool* argprim, worker_exec_entry* entry) {
 	char* pos = entry->data;
 	for(int i = 0; i < entry->n_args; i++) {
-
+		
 		char* T = pos;
 		pos += strlen(T)+1;
 		//elog(WARNING,"%d. T: %s, pos: %d",i,T,(int) pos);
 
 		bool isnull;
 		
-		jvalue val;
-
 		if(T[0] == '[') {
+			ArrayType* v;
+			Datum arg;
+			argprim[i] = true;
 			switch(T[1]) {
 				// 1D arrays
-				ArrayType* v;
-				Datum arg;
 				case 'B':
 					arg = datumDeSerialize(&pos, &isnull);
 					bytea* bytes  = DatumGetByteaP( arg );
 					jsize  nElems = VARSIZE(bytes) - sizeof(int32);
 					jbyteArray byteArray  =(*jenv)->NewByteArray(jenv,nElems);
 					(*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
-					val.l = byteArray;
+					args[i].l = byteArray;
 					break;
 				case 'J':
 					arg = datumDeSerialize(&pos, &isnull);
@@ -164,10 +163,23 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 						jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
 						jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
 						(*jenv)->SetLongArrayRegion(jenv,longArray, 0, nElems, (jlong*)ARR_DATA_PTR(v));
-						val.l = longArray;
+						args[i].l = longArray;
 					} else {
-						// Copy element by element 
-						//...
+						strcpy(entry->data,"Array with null not supported yet");
+						return -1;
+					}
+					break;
+				case 'D':
+					arg = datumDeSerialize(&pos, &isnull);
+					v = DatumGetArrayTypeP(arg);
+					if(!ARR_HASNULL(v)) {
+						jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+						jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
+						(*jenv)->SetDoubleArrayRegion(jenv, doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
+						args[i].l = doubleArray;
+					} else {
+						strcpy(entry->data,"Array with null not supported yet");
+						return -1;
 					}
 					break;
 				case 'F':
@@ -176,11 +188,11 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 					if(!ARR_HASNULL(v)) {
 						jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
 						jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
-						(*jenv)->SetFloatArrayRegion(jenv,floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
-						val.l = floatArray;
+						(*jenv)->SetFloatArrayRegion(jenv, floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
+						args[i].l = floatArray;
 					} else {
-						// Copy element by element 
-						//...
+						strcpy(entry->data,"Array with null not supported yet");
+						return -1;
 					}
 					break;
 				case '[':
@@ -189,24 +201,24 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 					// 2D arrays;
 					switch(T[2]) {
 						case 'D':
-						v = DatumGetArrayTypeP(arg);
-						int nc = 0;
-						if(!ARR_HASNULL(v)) {
-							jclass cls = (*jenv)->FindClass(jenv,"[D");
-							jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0],cls,0);
-							
-							for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
-								// Create inner
-								jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
-								(*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
-								nc += ARR_DIMS(v)[1];
-								(*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
-								(*jenv)->DeleteLocalRef(jenv,innerArray);
-							}
-							
-							val.l = objectArray;
-							break;
-						}	
+							v = DatumGetArrayTypeP(arg);
+							int nc = 0;
+							if(!ARR_HASNULL(v)) {
+								jclass cls = (*jenv)->FindClass(jenv,"[D");
+								jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0],cls,0);
+								
+								for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+									// Create inner
+									jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
+									(*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
+									nc += ARR_DIMS(v)[1];
+									(*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+									(*jenv)->DeleteLocalRef(jenv,innerArray);
+								}
+								
+								args[i].l = objectArray;
+								break;
+							}	
 						default:
 							strcpy(entry->data,"Could not deserialize java function argument (unknown 2d array type)");
 							return -1;
@@ -252,35 +264,35 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 							jfieldID fid[len];
 
 							// Loop over class fields to prepare                             
-							for(int i = 0; i < len; i++) {
+							for(int j = 0; j < len; j++) {
 								
 								// Detect field
-								jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
+								jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, j);
 								jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
 									
 								// Obtain signature
 								jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
-								jstr[i] = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
+								jstr[j] = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
 							
-								fieldname[i] =  (*jenv)->GetStringUTFChars(jenv, jstr[i], false);
+								fieldname[j] =  (*jenv)->GetStringUTFChars(jenv, jstr[j], false);
 							
 								m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
 								jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
 								jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
 
 								m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
-								jstr2[i] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-								typename[i] =  (*jenv)->GetStringUTFChars(jenv, jstr2[i], false);
+								jstr2[j] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
+								typename[j] =  (*jenv)->GetStringUTFChars(jenv, jstr2[j], false);
 
 								char error_msg[128];
-								sig[i] = convert_name_to_JNI_signature(typename[i], error_msg);
+								sig[j] = convert_name_to_JNI_signature(typename[j], error_msg);
 								
-								if(sig[i] == NULL) {
+								if(sig[j] == NULL) {
 									sprintf(entry->data,"%s",error_msg);   
 									return -1;
 								}
 							
-								fid[i] = (*jenv)->GetFieldID(jenv, cls, fieldname[i], sig[i]);
+								fid[j] = (*jenv)->GetFieldID(jenv, cls, fieldname[j], sig[j]);
 							}
 
 							// Loop over elements
@@ -291,7 +303,7 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 								jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
 
 								// Loop over class fields                            
-								for(int i = 0; i < len; i++) {
+								for(int j = 0; j < len; j++) {
 									
 									// Read element
 									arg = datumDeSerialize(&pos, &isnull);
@@ -301,7 +313,7 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 										return -1;
 									}
 									
-									int res = set_jobject_field_from_datum(&cobj, &fid[i], &arg, sig[i]); 
+									int res = set_jobject_field_from_datum(&cobj, &fid[j], &arg, sig[j]); 
 									
 									if(res != 0) {                                
 										strcpy(entry->data,"Could not deserialize java function argument (unknown error in composite type)");
@@ -314,12 +326,12 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 							}
 							
 							// Cleanup
-							for(int i = 0; i < len; i++) {
-								(*jenv)->ReleaseStringUTFChars(jenv, jstr2[i], typename[i]);
-								(*jenv)->ReleaseStringUTFChars(jenv, jstr[i], fieldname[i]);
+							for(int j = 0; j < len; j++) {
+								(*jenv)->ReleaseStringUTFChars(jenv, jstr2[j], typename[j]);
+								(*jenv)->ReleaseStringUTFChars(jenv, jstr[j], fieldname[j]);
 							}
 
-							val.l = objectArray;
+							args[i].l = objectArray;
 						}			
 						break;
 					}
@@ -331,6 +343,7 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 		}
 		else if(T[0] == 'L') {
 			Datum arg = datumDeSerialize(&pos, &isnull);
+			argprim[i] = true;
 
 			// Objects
 			if(strcmp(T, "Ljava/lang/String;") == 0) {
@@ -338,7 +351,8 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 				int len = VARSIZE_ANY_EXHDR(txt)+1;
 				char t[len];
 				text_to_cstring_buffer(txt, &t, len);
-				val.l = (*jenv)->NewStringUTF(jenv, t);
+				args[i].l = (*jenv)->NewStringUTF(jenv, t);
+
 			} else {
 				
 				// Map composite type
@@ -361,12 +375,12 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 					jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
 							
 					// Loop over class fields                            
-					for(int i = 0; i < len; i++) {
+					for(int j = 0; j < len; j++) {
 						
 						// ToDo: Move to helper function ?
 
 						// Detect field
-						jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
+						jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, j);
 						jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
 							
 						// Obtain signature
@@ -392,7 +406,7 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 						jfieldID fid = (*jenv)->GetFieldID(jenv, cls, fieldname, sig);
 						
 						Datum attr;
-						if(i > 0) {
+						if(j > 0) {
 							attr = datumDeSerialize(&pos, &isnull);
 						} else {
 							attr = arg;
@@ -414,7 +428,7 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 						}
                         
 					}
-					val.l = cobj;
+					args[i].l = cobj;
 				}
 				
 				//strcpy(entry->data,"HALDE");
@@ -426,28 +440,30 @@ argDeSerializer(jvalue* args, worker_exec_entry* entry) {
 
 			// Natives
 			switch(T[0]) {
+				case 'S':
+					args[i].s = (jshort) DatumGetInt16(arg);
+					break;
 				case 'I':
-					val.i = (jint) DatumGetInt32(arg);
+					args[i].i = (jint) DatumGetInt32(arg);
 					break;
 				case 'J':
-					val.j = (jlong) DatumGetInt64(arg);
+					args[i].j = (jlong) DatumGetInt64(arg);
 					break;
 				case 'Z':
-					val.z = (jboolean) DatumGetBool(arg);
+					args[i].z = (jboolean) DatumGetBool(arg);
 					break;
 				case 'F':
-					val.f = (jfloat) DatumGetFloat4(arg);
+					args[i].f = (jfloat) DatumGetFloat4(arg);
 					break;
 				case 'D':
-					val.d = (jdouble) DatumGetFloat8(arg);	
+					args[i].d = (jdouble) DatumGetFloat8(arg);	
 					break;	
+
 				default:
 					strcpy(entry->data,"Could not deserialize java function argument (unknown native type)");
 					return -1;	
 			}
 		}
-
-		args[i] = val;
 	}		
 
 	return 0;
@@ -687,19 +703,24 @@ moonshot_worker_main(Datum main_arg)
 	
 		Datum values[entry->n_return];
 		bool primitive[entry->n_return];
+		memset(primitive, 0, sizeof(primitive));
 		
 		// Prepare args
 		jvalue args[entry->n_args];
-		int jfr = argDeSerializer(args, entry);
+		bool argprim[entry->n_args];
+		memset(argprim, 0, sizeof(argprim));
+		
+		int jfr = argDeSerializer(args, &argprim, entry);
 
+		
 		//elog(WARNING,"[DEBUG]: Calling java function %s->%s",entry->class_name,entry->method_name);
 		if(jfr == 0) {			
 			jfr = call_java_function(values, primitive, entry->class_name, entry->method_name, entry->signature, entry->return_type, &args, entry->data);
 		} 
 
 		// Release args
-		freejvalues(args, entry->n_args);
-
+		freejvalues(args, &argprim, entry->n_args);
+		
 		// Check for exception
 		if( jfr > 0 ) {
 			elog(WARNING,"Java exception occured. Code: %d",jfr);
