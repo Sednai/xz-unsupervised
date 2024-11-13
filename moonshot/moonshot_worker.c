@@ -580,7 +580,7 @@ moonshot_worker_main(Datum main_arg)
         worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
 
         // Run function and return data
-        elog(WARNING,"BG worker taskid: %d",entry->taskid);
+        //elog(WARNING,"BG worker taskid: %d",entry->taskid);
 		
 		SpinLockRelease(&worker_head->lock);
 
@@ -710,7 +710,7 @@ moonshot_worker_main(Datum main_arg)
 		bool argprim[entry->n_args];
 		memset(argprim, 0, sizeof(argprim));
 		
-		int jfr = argDeSerializer(args, &argprim, entry);
+		int jfr = argDeSerializer(args, argprim, entry);
 
 		
 		//elog(WARNING,"[DEBUG]: Calling java function %s->%s",entry->class_name,entry->method_name);
@@ -719,7 +719,7 @@ moonshot_worker_main(Datum main_arg)
 		} 
 
 		// Release args
-		freejvalues(args, &argprim, entry->n_args);
+		freejvalues(args, argprim, entry->n_args);
 		
 		// Check for exception
 		if( jfr > 0 ) {
@@ -767,7 +767,7 @@ moonshot_worker_main(Datum main_arg)
 		}
 		SetLatch( entry->notify_latch );
 
-		elog(WARNING,"BG worker: DONE");	
+		//elog(WARNING,"BG worker: DONE");	
 	}
 
     elog(WARNING, "SIG RECEIVED");	
