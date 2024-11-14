@@ -132,7 +132,7 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	Build Java args from serialized datums
 */
 int 
-argDeSerializer(jvalue* args, bool* argprim, worker_exec_entry* entry) {
+argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 	char* pos = entry->data;
 	for(int i = 0; i < entry->n_args; i++) {
 		
@@ -145,7 +145,7 @@ argDeSerializer(jvalue* args, bool* argprim, worker_exec_entry* entry) {
 		if(T[0] == '[') {
 			ArrayType* v;
 			Datum arg;
-			argprim[i] = true;
+			argprim[i] = 1;
 			switch(T[1]) {
 				// 1D arrays
 				case 'B':
@@ -343,7 +343,6 @@ argDeSerializer(jvalue* args, bool* argprim, worker_exec_entry* entry) {
 		}
 		else if(T[0] == 'L') {
 			Datum arg = datumDeSerialize(&pos, &isnull);
-			argprim[i] = true;
 
 			// Objects
 			if(strcmp(T, "Ljava/lang/String;") == 0) {
@@ -352,9 +351,11 @@ argDeSerializer(jvalue* args, bool* argprim, worker_exec_entry* entry) {
 				char t[len];
 				text_to_cstring_buffer(txt, &t, len);
 				args[i].l = (*jenv)->NewStringUTF(jenv, t);
+				argprim[i] = 2;
 
 			} else {
-				
+				argprim[i] = 1;
+	
 				// Map composite type
 				jclass cls = (*jenv)->FindClass(jenv, T);
 				if(cls == NULL) {
@@ -707,7 +708,7 @@ moonshot_worker_main(Datum main_arg)
 		
 		// Prepare args
 		jvalue args[entry->n_args];
-		bool argprim[entry->n_args];
+		short argprim[entry->n_args];
 		memset(argprim, 0, sizeof(argprim));
 		
 		int jfr = argDeSerializer(args, argprim, entry);

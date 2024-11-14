@@ -4,7 +4,7 @@
 
 #define MAX_WORKERS 1
 #define MAX_QUEUE_LENGTH 16
-#define MAX_DATA 2097152*10
+#define MAX_DATA 2097152*1
 typedef struct 
 {
     dlist_node node;

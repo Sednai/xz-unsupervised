@@ -661,7 +661,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
     }
     // Prep arguments
     jvalue args[fcinfo->nargs];
-    bool argprim[fcinfo->nargs];
+    short argprim[fcinfo->nargs];
     memset(argprim, 0, sizeof(argprim));
     argToJava(args, signature, fcinfo, argprim);
     
@@ -764,7 +764,7 @@ jvalue PG_text_to_jvalue(text* txt) {
 /*
     Helper function to convert arguments to jvalues for foreground worker
 */
-int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* argprim) {
+int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* argprim) {
     bool openrb = false;
     bool openo = false;
     bool opensb = false;
@@ -813,7 +813,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* ar
 
                     if(strcmp("Ljava/lang/String;",buf) == 0) {
                         target[ac] = (jvalue) PG_text_to_jvalue( DatumGetTextP( PG_GETARG_DATUM(ac) ));
-                        argprim[ac] = true;
+                        argprim[ac] = 2;
                     } else {
                         // Map to composite type
                         // ToDo: Move to helper function ?
@@ -881,7 +881,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* ar
                                 
                                 if(res == 0) {                                
                                     target[ac].l = cobj;
-                                    argprim[ac] = true;
+                                    argprim[ac] = 1;
                                 } else {
                                     elog(ERROR,"Unknown error in setting composite type");
                                 }
@@ -912,7 +912,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* ar
                                     jbyteArray byteArray  =(*jenv)->NewByteArray(jenv,nElems);
                                     (*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
                                     target[ac].l = byteArray;
-                                    argprim[ac] = true;
+                                    argprim[ac] = 1;
                                     break;
                                 elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
                             }
@@ -926,7 +926,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* ar
                                         jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
                                         (*jenv)->SetLongArrayRegion(jenv,longArray, 0, nElems, (jlong*)ARR_DATA_PTR(v));
                                         target[ac].l = longArray;
-                                        argprim[ac] = true;
+                                        argprim[ac] = 1;
                                     } else {
                                         elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
                                     }
@@ -943,7 +943,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* ar
                                         jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
                                         (*jenv)->SetDoubleArrayRegion(jenv,doubleArray, 0, nElems, (jdouble *)ARR_DATA_PTR(v));
                                         target[ac].l = doubleArray;
-                                        argprim[ac] = true;
+                                        argprim[ac] = 1;
                                     } else {
                                         elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
                                     }
@@ -963,7 +963,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* ar
                                             (*jenv)->DeleteLocalRef(jenv,innerArray);
                                         }    
                                         target[ac].l = objectArray;
-                                        argprim[ac] = true;
+                                        argprim[ac] = 1;
                                     } else {
                                         elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
                                     }
@@ -1094,7 +1094,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, bool* ar
                                 }
                                          
                                 target[ac].l = array;
-                                argprim[ac] = true;
+                                argprim[ac] = 1;
                                 
                                 // Cleanup
                                 for(int i = 0; i < len; i++) {
