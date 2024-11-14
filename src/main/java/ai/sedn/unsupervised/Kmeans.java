@@ -216,7 +216,7 @@ public class Kmeans {
 	}
 	
 	
-	/*
+	
 	public static int atest(TestReturn[] A) throws SQLException {
 		System.out.println("ENTRY OK");
 		
@@ -225,7 +225,7 @@ public class Kmeans {
 		
 		return 0;
 	}
-	*/
+	
 	
 	public static Iterator rtest() throws SQLException {
 		ArrayList L = new ArrayList<TestReturn>();
@@ -361,7 +361,7 @@ public class Kmeans {
 			
 		float[] v = new float[Nc];
 		// Main loop over data
-		System.out.println("[DEBUG] Before moonshot");
+		//System.out.println("[DEBUG] Before moonshot");
 		
 		try {
 			while ( moonshot.fetch_next() ) {
@@ -436,7 +436,7 @@ public class Kmeans {
 		// Force GC
 		System.gc();
 		System.runFinalization();
-		System.out.println("[DEBUG] Java done!");
+		//System.out.println("[DEBUG] Java done!");
 		
 		return T;
 	}
@@ -477,7 +477,7 @@ public class Kmeans {
 		
 		GridScheduler gridScheduler = new GridScheduler();
 	
-		System.out.println("[DEBUG] starting kernel init");
+		//System.out.println("[DEBUG] starting kernel init");
 		
 		KernelContext context = new KernelContext();    
 		TaskGraph taskGraph = new TaskGraph("s0")
@@ -486,11 +486,11 @@ public class Kmeans {
 	        	.task("t0", Kmeans::approx_euclidean_distance_tvm_kernel, context,  v_batch, centroids, N, d, Nc, K, centroids_L)
 	        	.task("t1", Kmeans::search_min_distance_tvm_kernel, context, d, N, ccentroid, K)
 	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
-		System.out.println("[DEBUG] graph ready");
+		//System.out.println("[DEBUG] graph ready");
 		
 		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
 		
-		System.out.println("[DEBUG] graph snapshot ready");
+		//System.out.println("[DEBUG] graph snapshot ready");
 		
 
 		gridScheduler.setWorkerGrid("s0.t0", gridworker_2D);
@@ -498,14 +498,14 @@ public class Kmeans {
 		
 		try(TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph)) {
 			
-			System.out.println("[DEBUG] Execution plan ready");
+			//System.out.println("[DEBUG] Execution plan ready");
 			
 			
 			// Init return vars
 			int[] ncount = new int[K[0]];
 			float[][] gradients = new float[K[0]][Nc[0]];
 			
-			System.out.println("[DEBUG] Before main loop");
+			//System.out.println("[DEBUG] Before main loop");
 			
 			
 			// Do batching
@@ -845,9 +845,9 @@ public class Kmeans {
 		float[][] centroids = new float[K][Nc];
 		
 		if(!array) {
-			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(0.25) limit "+K;
+			query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(1.) limit "+K;
 		} else {
-			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM(0.25) where cardinality("+parts[0]+")!=0 limit "+K;
+			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM(1.) where cardinality("+parts[0]+")!=0 limit "+K;
 		}
 		
 		stmt = conn.createStatement();

@@ -319,10 +319,10 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 										strcpy(entry->data,"Could not deserialize java function argument (unknown error in composite type)");
 										return -1;
 									}
-
-									// Set element
-									(*jenv)->SetObjectArrayElement(jenv, objectArray, n, cobj);
 								}
+								
+								// Set element
+								(*jenv)->SetObjectArrayElement(jenv, objectArray, n, cobj);
 							}
 							
 							// Cleanup
@@ -747,7 +747,10 @@ moonshot_worker_main(Datum main_arg)
 			// Prepare return
 			char* data = entry->data;
 			for(int i = 0; i < entry->n_return; i++) {
-				datumSerialize( PG_DETOAST_DATUM( values[i] ) , false, primitive[i],-1, &data);
+				if(!primitive[i]) 
+					datumSerialize( PG_DETOAST_DATUM( values[i] ) , false, primitive[i],-1, &data);
+				else
+					datumSerialize( values[i], false, primitive[i],-1, &data);
 			}		
 		}
 

@@ -140,12 +140,13 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                (*jenv)->SetDoubleField(jenv, *obj , *fid, DatumGetFloat8( *dat ) );
                 return 0;
             case 'F':       
-               (*jenv)->SetDoubleField(jenv, *obj , *fid, DatumGetFloat4( *dat ) );
+               (*jenv)->SetFloatField(jenv, *obj , *fid, DatumGetFloat4( *dat ) );
                 return 0;
         }
     } else {
         if(sig[1] != '[') {
             // 1D arrays
+            ArrayType* v;
             switch(sig[1]) {
                 case 'B':
                     bytea* bytes  = DatumGetByteaP( *dat );
@@ -155,7 +156,7 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                     (*jenv)->SetObjectField(jenv, *obj ,*fid, byteArray );
                     return 0;                              
                 case 'D':
-                    ArrayType* v = DatumGetArrayTypeP( *dat );
+                    v = DatumGetArrayTypeP( *dat );
                     if(!ARR_HASNULL(v)) {
                         jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
                         jdoubleArray doubleArray = (*jenv)->NewDoubleArray(jenv,nElems);
@@ -167,6 +168,21 @@ int set_jobject_field_from_datum(jobject* obj, jfieldID* fid, Datum* dat, char* 
                         //...
                         elog(ERROR,"Array has NULLs");
                     }
+                    break;
+                case 'F':
+                    v = DatumGetArrayTypeP( *dat );
+                    if(!ARR_HASNULL(v)) {
+                        jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+                        jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
+                        (*jenv)->SetFloatArrayRegion(jenv, floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
+                        (*jenv)->SetObjectField(jenv, *obj ,*fid, floatArray );
+                        return 0;
+                    } else {
+                        // Copy element by element 
+                        //...
+                        elog(ERROR,"Array has NULLs");
+                    }
+                    break;
             }
         }
     }

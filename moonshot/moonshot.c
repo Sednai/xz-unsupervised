@@ -287,7 +287,7 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
         worker_head = launch_dynamic_workers(n_workers, need_SPI, globalWorker);
         pg_usleep(5000L);		/* 5msec */
     } 
-
+    
     // Prepare return tuple
     ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
     
@@ -683,13 +683,13 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         bool* nulls = palloc0( natts * sizeof( bool ) );
         bool primitive[natts];
         memset(primitive, 0, sizeof(primitive));
-		
+	
         jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args, error_msg);
-       
+    
         if(jfr == 0) {     
             if(need_SPI) disconnect_SPI();
             PopActiveSnapshot();
-            if(tupdesc != NULL) {
+            if(tupdesc != NULL && natts > 1) {
                 HeapTuple tuple = heap_form_tuple(tupdesc, values, nulls);
                 pfree(nulls);
                 freejvalues(args, argprim, fcinfo->nargs);
@@ -1009,38 +1009,38 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                 jfieldID fid[len];
 
                                 // Loop over class fields to prepare                             
-                                for(int i = 0; i < len; i++) {
+                                for(int j = 0; j < len; j++) {
                                    
                                     // Detect field
-                                    jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, i);
+                                    jobject field = (*jenv)->GetObjectArrayElement(jenv, fieldsList, j);
                                     jclass fieldClass = (*jenv)->GetObjectClass(jenv, field);
                                         
                                     // Obtain signature
                                     jmethodID m =  (*jenv)->GetMethodID(jenv, fieldClass, "getName", "()Ljava/lang/String;");   
-                                    jstr[i] = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
+                                    jstr[j] = (jstring)(*jenv)->CallObjectMethod(jenv, field, m);
                                 
-                                    fieldname[i] =  (*jenv)->GetStringUTFChars(jenv, jstr[i], false);
+                                    fieldname[j] =  (*jenv)->GetStringUTFChars(jenv, jstr[j], false);
                                 
                                     m =  (*jenv)->GetMethodID(jenv, fieldClass, "getType", "()Ljava/lang/Class;");   
                                     jobject value = (*jenv)->CallObjectMethod(jenv, field, m);
                                     jclass  valueClass = (*jenv)->GetObjectClass(jenv, value);
 
                                     m =  (*jenv)->GetMethodID(jenv, valueClass, "getName", "()Ljava/lang/String;");   
-                                    jstr2[i] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
-                                    typename[i] =  (*jenv)->GetStringUTFChars(jenv, jstr2[i], false);
+                                    jstr2[j] = (jstring)(*jenv)->CallObjectMethod(jenv, value, m);
+                                    typename[j] =  (*jenv)->GetStringUTFChars(jenv, jstr2[j], false);
 
                                     char error_msg[128];
-                                    sig[i] = convert_name_to_JNI_signature(typename[i], error_msg);
+                                    sig[j] = convert_name_to_JNI_signature(typename[j], error_msg);
                                     
-                                    if(sig[i] == NULL) {
+                                    if(sig[j] == NULL) {
                                         elog(ERROR,"%s",error_msg);   
                                     }
                                 
-                                    fid[i] = (*jenv)->GetFieldID(jenv, cls, fieldname[i], sig[i]);
+                                    fid[j] = (*jenv)->GetFieldID(jenv, cls, fieldname[j], sig[j]);
 
                                     // Convert fieldname to lower case for PG lookup
-                                    for(int j = 0; j < strlen(fieldname[i]); j++) {
-                                        fieldname[i][j] = tolower(fieldname[i][j]);
+                                    for(int k = 0; k < strlen(fieldname[k]); k++) {
+                                        fieldname[j][k] = tolower(fieldname[j][k]);
                                     } 
                                 }
 
@@ -1063,14 +1063,14 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                 jmethodID constructor = (*jenv)->GetMethodID(jenv, cls, "<init>", "()V");
                                        
                                 // Loop over array elements
-                                for (int i = 0; i < N; i++)
+                                for (int n = 0; n < N; n++)
                                 {
-                                    if (!nulls[i]) {
+                                    if (!nulls[n]) {
                                         // Construct new instance
                                         jobject cobj = (*jenv)->NewObject(jenv, cls, constructor);
                         
                                         // Prepare elements
-                                        HeapTupleHeader t = DatumGetHeapTupleHeader(datums[i]);
+                                        HeapTupleHeader t = DatumGetHeapTupleHeader(datums[n]);
                                         
                                         // Loop over class fields                            
                                         for(int j = 0; j < len; j++) {
@@ -1088,7 +1088,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                             }
                                         }
                                     
-                                        (*jenv)->SetObjectArrayElement(jenv, array, i, cobj);
+                                        (*jenv)->SetObjectArrayElement(jenv, array, n, cobj);
                                         (*jenv)->DeleteLocalRef(jenv,cobj);
                                     } 
                                 }
@@ -1097,9 +1097,9 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                 argprim[ac] = 1;
                                 
                                 // Cleanup
-                                for(int i = 0; i < len; i++) {
-                                    (*jenv)->ReleaseStringUTFChars(jenv, jstr2[i], typename[i]);
-                                    (*jenv)->ReleaseStringUTFChars(jenv, jstr[i], fieldname[i]);
+                                for(int j = 0; i < len; j++) {
+                                    (*jenv)->ReleaseStringUTFChars(jenv, jstr2[j], typename[j]);
+                                    (*jenv)->ReleaseStringUTFChars(jenv, jstr[j], fieldname[j]);
                                 }
 
                             } else {
@@ -1367,10 +1367,10 @@ atest(PG_FUNCTION_ARGS) {
     // Call java function
     char* class_name = "ai/sedn/unsupervised/Kmeans";
     char* method_name = "atest";
-    char* signature = "([Lai/sedn/unsupervised/TestReturn;)Lai/sedn/unsupervised/TestReturn;";
+    char* signature = "([Lai/sedn/unsupervised/TestReturn;)I";
     elog(NOTICE,"A");
-    Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, "O");
-    //control_bgworkers(fcinfo, MAX_WORKERS, false, true, class_name, method_name, signature, "I");
+    //Datum ret = control_fgworker(fcinfo, false, class_name, method_name, signature, "I");
+    Datum ret = control_bgworkers(fcinfo, 1, false, false, class_name, method_name, signature, "I");
     
     elog(NOTICE,"B");
 
