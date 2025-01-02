@@ -53,15 +53,15 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	if (found && worker_head->n_workers > 0) {
     	return worker_head;
     }
-	
+
+	SpinLockAcquire(&worker_head->lock);
+
 	/* initialize worker data header */
 	memset(worker_head, 0, sizeof(worker_data_head));
     dlist_init(&worker_head->exec_list);
     dlist_init(&worker_head->free_list);
 	dlist_init(&worker_head->return_list);
-	
-	SpinLockAcquire(&worker_head->lock);
-	
+		
 	// Init free list
 	for(int i = 0; i < MAX_QUEUE_LENGTH; i++) {
 		worker_head->list_data[i].taskid = i;

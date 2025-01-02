@@ -26,8 +26,21 @@
 #include <utils/typcache.h>
 #include "postmaster/bgworker.h"
 
+#include "commands/event_trigger.h"
+#include "catalog/pg_proc.h"
+#include "catalog/pg_type.h"
+#include "commands/event_trigger.h"
+#include "commands/trigger.h"
+#include "executor/spi.h"
+#include "funcapi.h"
+#include "utils/builtins.h"
+#include "utils/lsyscache.h"
+#include "utils/syscache.h"
+#include "utils/hsearch.h"
+
 // ToDo: Need two data structures so that user and global bg workers can be used simultaneously
 worker_data_head *worker_head = NULL;
+HTAB *function_hash = NULL;
 
 enum { NS_PER_SECOND = 1000000000 };
 
@@ -49,6 +62,203 @@ void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
 }
 
 PG_MODULE_MAGIC;
+
+
+static char* pgtype_to_java(Oid type) {
+    switch(type) {
+        case BYTEAOID:
+            return "[B";
+        case BOOLOID:
+            return "Z";
+        case INT2OID:
+            return "S";
+        case INT4OID:
+            return "I";
+        case INT8OID:
+            return "J";
+        case FLOAT4OID:
+            return "F";
+        case FLOAT8OID:
+            return "D";
+        case TEXTOID:
+            return "Ljava/lang/String;";
+        default:
+            return "O";
+    }
+}
+
+static Datum java_func_handler(PG_FUNCTION_ARGS)
+{
+    bool isnull;
+    Datum ret;
+    char *source;
+    bool found;
+    MemoryContext oldctx;
+    Oid fid = fcinfo->flinfo->fn_oid;
+
+    //elog(WARNING,"[DEBUG]: Entry java function handler");
+
+    if(function_hash == NULL) {
+        //elog(WARNING,"[DEBUG]: Init cache");
+
+        // Init hash cache
+        HASHCTL        ctl;
+
+        /* Create the hash table. */
+        MemSet(&ctl, 0, sizeof(ctl));
+        ctl.keysize = sizeof(Oid);
+        ctl.entrysize = sizeof(control_entry);
+        ctl.hcxt = TopMemoryContext;
+
+        oldctx = MemoryContextSwitchTo(TopMemoryContext);
+        function_hash = hash_create("function control cache", 128, &ctl, HASH_ELEM | HASH_CONTEXT | HASH_BLOBS);
+        MemoryContextSwitchTo(oldctx);
+    }
+
+    // Lookup in cache
+    oldctx = MemoryContextSwitchTo(TopMemoryContext);
+    control_entry* centry = (control_entry *) hash_search(function_hash, (void *) &fid, HASH_ENTER, &found);
+    
+    if (!found) {
+        //elog(WARNING,"CENTRY NOT FOUND: %d",fid);
+     
+        /* Fetch pg_proc entry. */
+        HeapTuple tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(fid));
+        
+        if (!HeapTupleIsValid(tuple))
+                elog(ERROR, "cache lookup failed for function %u",
+                            fid);
+
+        Form_pg_proc fstruct = (Form_pg_proc) GETSTRUCT(tuple);
+        ret = SysCacheGetAttr(PROCOID, tuple, Anum_pg_proc_prosrc, &isnull);
+        if (isnull)
+                elog(ERROR, "could not find call info for function \"%u\"",
+                            fid);
+        
+        source = DatumGetCString(DirectFunctionCall1(textout, ret));
+        
+        //ereport(WARNING, (errmsg("source text of function : %s", source)));
+
+        // Infer return type
+        centry->return_type = pgtype_to_java(fstruct->prorettype);
+
+        char* token = strtok(source, "|");
+        
+        if(token != NULL) {
+            centry->mode = (char*) strdup(token);
+            
+            // ToDo: Re-order
+            token = strtok(0,"|");
+            if(token != NULL) {
+                centry->class_name = strdup( token );
+
+                token = strtok(0,"|");
+                if(token != NULL) {
+                    centry->method_name = strdup( token );
+                    
+                    token = strtok(0,"|");
+                    if(token != NULL) {
+                        centry->signature = strdup(token);
+                    } else {
+                    
+                            
+                        if(centry->return_type[0]=='O') {
+                            elog(ERROR,"Return type requires manual specification of Java signature");
+                        }
+                        
+                        // Try to infer signature   
+                        
+                        // Args                     
+                        Oid        *argtypes;
+                        char      **argnames;
+                        char       *argmodes;
+                        char       *proname;
+
+                        int numargs = get_func_arg_info(tuple, &argtypes, &argnames, &argmodes);
+                        
+                        centry->signature = palloc(512);
+                        centry->signature[0] = '(';
+                        int pos = 1;
+                        for (int i = 0; i < numargs; i++)
+                        {
+                            Oid argtype = fstruct->proargtypes.values[i];
+                            char* type = pgtype_to_java(argtype);
+                            //elog(WARNING,"arg: %s", type);
+                            
+                            if(type[0] == 'O') {
+                                elog(ERROR,"Argument type requires manual specification of Java signature");
+                            }
+                            
+                            // Build signature
+                            int len = strlen(type);
+                            memcpy(&centry->signature[pos],type,strlen(centry->return_type));
+                            pos += len;
+                        }
+                        
+                        centry->signature[pos] = ')';
+                        pos++;
+                        // Return type
+                        memcpy(&centry->signature[pos],centry->return_type,strlen(centry->return_type)+1);
+                    }
+                
+                } else {
+                    elog(ERROR,"No method name supplied");
+                }
+
+            } else {
+                elog(ERROR,"No class name supplied");
+            }
+
+        } else {
+            elog(ERROR,"No Java function information supplied");
+        }
+        
+        ReleaseSysCache(tuple);
+    }
+
+    //elog(WARNING,"mode: %s",centry->mode);
+    //elog(WARNING,"class: %s",centry->class_name);
+    //elog(WARNING,"sig: %s",centry->signature);
+    
+    Datum retr;
+    if(centry->mode[0] == 'F') {
+        retr = control_fgworker(fcinfo, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
+    } else {
+        if(centry->mode[0] == 'G') {
+            retr = control_bgworkers(fcinfo, MAX_WORKERS, false, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);
+        } else 
+            elog(ERROR,"Not supported worker type");
+    }
+   
+    MemoryContextSwitchTo(oldctx);
+
+    PG_RETURN_DATUM( retr );   
+}
+
+
+PG_FUNCTION_INFO_V1(java_call_handler);
+
+Datum java_call_handler(PG_FUNCTION_ARGS)
+{
+    Datum           ret = (Datum) 0;
+
+    if (CALLED_AS_TRIGGER(fcinfo))
+    {
+        elog(ERROR,"Java function called as trigger not supported yet");
+    }
+    else if (CALLED_AS_EVENT_TRIGGER(fcinfo))
+    {
+        elog(ERROR,"Java function called as event trigger not supported yet");
+    }
+    else
+    {
+        ret = java_func_handler(fcinfo);
+    }
+    
+    return ret;
+}
+
+
 
 PG_FUNCTION_INFO_V1(kmeans_gradients_cpu_float);
 Datum
@@ -312,7 +522,7 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
     Datum values[natts];
     bool* nulls = palloc0( natts * sizeof( bool ) );
     
-     SpinLockAcquire(&worker_head->lock);
+    SpinLockAcquire(&worker_head->lock);
     /*
         Lock acquired
     */      
