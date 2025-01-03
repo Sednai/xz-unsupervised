@@ -41,7 +41,10 @@
 PG_MODULE_MAGIC;
 
 // ToDo: Need two data structures so that user and global bg workers can be used simultaneously
-worker_data_head *worker_head = NULL;
+//worker_data_head *worker_head = NULL;
+worker_data_head *worker_head_user = NULL;
+worker_data_head *worker_head_global = NULL;
+
 HTAB *function_hash = NULL;
 
 enum { NS_PER_SECOND = 1000000000 };
@@ -221,14 +224,20 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
     
     Datum retr;
     if(centry->mode[0] == 'F') {
+        // Foreground without SPI
         retr = control_fgworker(fcinfo, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
-    } else {
-        if(centry->mode[0] == 'G') {
-            retr = control_bgworkers(fcinfo, MAX_WORKERS, false, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);
-        } else 
-            elog(ERROR,"Not supported worker type");
-    }
-   
+    } else if(centry->mode[0] == 'S') {
+        // Foreground with SPI
+        retr = control_fgworker(fcinfo, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);   
+    } else if(centry->mode[0] == 'G') {
+        // Background global (NO SPI)
+        retr = control_bgworkers(fcinfo, MAX_WORKERS, false, true, centry->class_name, centry->method_name, centry->signature, centry->return_type);
+    } else if(centry->mode[0] == 'B') {
+        // Background with SPI
+        retr = control_bgworkers(fcinfo, MAX_WORKERS, true, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
+    } else 
+        elog(ERROR,"Not supported worker type: %s",centry->mode[0]);
+    
     MemoryContextSwitchTo(oldctx);
 
     PG_RETURN_DATUM( retr );   
@@ -491,12 +500,23 @@ bprpspectra_bg_ms(PG_FUNCTION_ARGS)
 */
 Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, bool globalWorker, char* class_name, char* method_name, char* signature, char* return_type) {
 
+    worker_data_head *worker_head;
+
     // Start workers if not started yet
-    if(worker_head == NULL || worker_head->n_workers == 0) {
-        worker_head = launch_dynamic_workers(n_workers, need_SPI, globalWorker);
-        pg_usleep(5000L);		/* 5msec */
-    } 
-    
+    if(globalWorker) {
+        if(worker_head_global == NULL || worker_head_global->n_workers == 0) {
+            worker_head_global = launch_dynamic_workers(n_workers, need_SPI, globalWorker);
+            pg_usleep(5000L);		/* 5msec */
+        }
+        worker_head = worker_head_global;
+    } else {
+        if(worker_head_user == NULL || worker_head_user->n_workers == 0) {
+            worker_head_user = launch_dynamic_workers(n_workers, need_SPI, globalWorker);
+            pg_usleep(5000L);		/* 5msec */
+        }
+        worker_head = worker_head_user; 
+    }
+
     // Prepare return tuple
     ReturnSetInfo   *rsinfo       = (ReturnSetInfo *) fcinfo->resultinfo;
     
@@ -1356,10 +1376,10 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
 }
 
 
-PG_FUNCTION_INFO_V1(moonshot_clear_queue);
+PG_FUNCTION_INFO_V1(ms_clear_user_queue);
 Datum
-moonshot_clear_queue(PG_FUNCTION_ARGS) {
-    if(worker_head == NULL) {
+ms_clear_user_queue(PG_FUNCTION_ARGS) {
+    if(worker_head_user == NULL) {
         Oid			roleid = GetUserId();
 	    Oid			dbid = MyDatabaseId;
 	
@@ -1367,36 +1387,36 @@ moonshot_clear_queue(PG_FUNCTION_ARGS) {
         snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
         bool found = false;
-        worker_head = ShmemInitStruct(buf,
+        worker_head_user = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
         if(!found) {
-            worker_head->n_workers = 0;
+            worker_head_user->n_workers = 0;
         }
     }
 
-    if(worker_head->n_workers == 0) {
-        elog(ERROR,"Can not restart workers if not started yet");
+    if(worker_head_user->n_workers == 0) {
+        elog(ERROR,"No workers started yet");
     }
 
-    SpinLockAcquire(&worker_head->lock);
+    SpinLockAcquire(&worker_head_user->lock);
     int c = 0;
-    while(!dlist_is_empty(&worker_head->exec_list)) {
-        dlist_node* dnode = dlist_pop_head_node(&worker_head->exec_list);
-        dlist_push_tail(&worker_head->free_list,dnode);
+    while(!dlist_is_empty(&worker_head_user->exec_list)) {
+        dlist_node* dnode = dlist_pop_head_node(&worker_head_user->exec_list);
+        dlist_push_tail(&worker_head_user->free_list,dnode);
         c++;
     }
     
-    SpinLockRelease(&worker_head->lock);   
+    SpinLockRelease(&worker_head_user->lock);   
 
     PG_RETURN_INT32(c);
 }
 
-PG_FUNCTION_INFO_V1(moonshot_show_queue);
+PG_FUNCTION_INFO_V1(ms_show_user_queue);
 Datum
-moonshot_show_queue(PG_FUNCTION_ARGS) {
+ms_show_user_queue(PG_FUNCTION_ARGS) {
     
-    if(worker_head == NULL) {
+    if(worker_head_user == NULL) {
         Oid			roleid = GetUserId();
 	    Oid			dbid = MyDatabaseId;
 	
@@ -1404,35 +1424,35 @@ moonshot_show_queue(PG_FUNCTION_ARGS) {
         snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
         bool found = false;
-        worker_head = ShmemInitStruct(buf,
+        worker_head_user = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
         if(!found) {
-            worker_head->n_workers = 0;
+            worker_head_user->n_workers = 0;
         }
     } 
 
-    if(worker_head->n_workers == 0) {
-        elog(ERROR,"Can not restart workers if not started yet");
+    if(worker_head_user->n_workers == 0) {
+        elog(ERROR,"No workers started yet");
     }
 
-    SpinLockAcquire(&worker_head->lock);
+    SpinLockAcquire(&worker_head_user->lock);
     
     int c = 0;
     dlist_iter iter;
     
-    dlist_foreach(iter, &worker_head->exec_list) {
+    dlist_foreach(iter, &worker_head_user->exec_list) {
         c++;
     }
     
-    SpinLockRelease(&worker_head->lock);   
+    SpinLockRelease(&worker_head_user->lock);   
 
     PG_RETURN_INT32(c);
 }
 
-PG_FUNCTION_INFO_V1(moonshot_restart_workers);
+PG_FUNCTION_INFO_V1(ms_kill_user_workers);
 Datum
-moonshot_restart_workers(PG_FUNCTION_ARGS) {
+ms_kill_user_workers(PG_FUNCTION_ARGS) {
    
     Oid			roleid = GetUserId();
     Oid			dbid = MyDatabaseId;
@@ -1441,29 +1461,29 @@ moonshot_restart_workers(PG_FUNCTION_ARGS) {
     snprintf(buf, BGW_MAXLEN, "MW_%d_%d", roleid, dbid); 
     
     bool found = false;
-    worker_data_head* worker_head = ShmemInitStruct(buf,
+    worker_data_head* worker_head_user = ShmemInitStruct(buf,
                             sizeof(worker_data_head),
                             &found);
     if(!found) {
-        worker_head->n_workers = 0;
-        elog(ERROR,"Can not restart workers if not started yet");
+        worker_head_user->n_workers = 0;
+        elog(ERROR,"Can not kill workers if not started yet");
     }
 
-    SpinLockAcquire(&worker_head->lock);
+    SpinLockAcquire(&worker_head_user->lock);
     
-    int n_workers = worker_head->n_workers;
+    int n_workers = worker_head_user->n_workers;
     
     if(n_workers == 0) {
-        SpinLockRelease(&worker_head->lock);   
-        elog(ERROR,"Can not restart workers if not started yet");
+        SpinLockRelease(&worker_head_user->lock);   
+        elog(ERROR,"Can not kill workers if not started yet");
     }
     
     int ret = 0;
     for(int r = 0; r < n_workers; r++) {
-        ret += kill( worker_head->pid[r], SIGTERM);
+        ret += kill( worker_head_user->pid[r], SIGTERM);
     }
   
-    SpinLockRelease(&worker_head->lock);   
+    SpinLockRelease(&worker_head_user->lock);   
     
     PG_RETURN_INT32(ret);
 }
@@ -1477,41 +1497,41 @@ ms_kill_global_workers(PG_FUNCTION_ARGS) {
     snprintf(buf, BGW_MAXLEN, "MW_global"); 
         
     bool found = false;
-    worker_data_head* worker_head = ShmemInitStruct(buf,
+    worker_data_head* worker_head_global = ShmemInitStruct(buf,
                                 sizeof(worker_data_head),
                                 &found);
     if(!found) {
-        worker_head->n_workers = 0;
-        elog(ERROR,"Can not restart workers if not started yet (shared mem blank)");
+        worker_head_global->n_workers = 0;
+        elog(ERROR,"Can not kill workers if not started yet (shared mem blank)");
     }
     
-    SpinLockAcquire(&worker_head->lock);
+    SpinLockAcquire(&worker_head_global->lock);
     
-    int n_workers = worker_head->n_workers;
+    int n_workers = worker_head_global->n_workers;
     
     if(n_workers == 0) {
-        SpinLockRelease(&worker_head->lock);   
-        elog(ERROR,"Can not restart workers if not started yet (n_workers=0)");
+        SpinLockRelease(&worker_head_global->lock);   
+        elog(ERROR,"Can not kill workers if not started yet (n_workers=0)");
     }
     
     int ret = 0;
     for(int r = 0; r < n_workers; r++) {
-        if(worker_head->pid[r] != 0) {
-            int err = kill( worker_head->pid[r], SIGTERM);
+        if(worker_head_global->pid[r] != 0) {
+            int err = kill( worker_head_global->pid[r], SIGTERM);
             if(err == 0) {
                 ret +=1;
-                worker_head->pid[r] = 0;
+                worker_head_global->pid[r] = 0;
             } else 
-                elog(WARNING,"Global worker %d with pid %d could not be killed (%d)",r,worker_head->pid[r],err);
+                elog(WARNING,"Global worker %d with pid %d could not be killed (%d)",r,worker_head_global->pid[r],err);
             
         } else 
             elog(WARNING,"Global worker %d with invalid pid",r);
         
     }
     
-    worker_head->n_workers = 0;
+    worker_head_global->n_workers = 0;
     
-    SpinLockRelease(&worker_head->lock);   
+    SpinLockRelease(&worker_head_global->lock);   
     
     PG_RETURN_INT32(ret);
 }
