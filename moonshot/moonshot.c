@@ -38,6 +38,8 @@
 #include "utils/syscache.h"
 #include "utils/hsearch.h"
 
+PG_MODULE_MAGIC;
+
 // ToDo: Need two data structures so that user and global bg workers can be used simultaneously
 worker_data_head *worker_head = NULL;
 HTAB *function_hash = NULL;
@@ -60,9 +62,6 @@ void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
         td->tv_sec++;
     }
 }
-
-PG_MODULE_MAGIC;
-
 
 static char* pgtype_to_java(Oid type) {
     switch(type) {

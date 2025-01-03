@@ -1,3 +1,15 @@
-all:
-	gcc -fPIC -shared -D_PG_ORCL_ -DPGXC -DXCP -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Wendif-labels -Wmissing-format-attribute -Wformat-security -fno-strict-aliasing -fwrapv -fexcess-precision=standard -g -D_GNU_SOURCE -D_USER_SWITCH_ -DPGXC -DXCP -DXZ -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Wendif-labels -Wmissing-format-attribute -Wformat-security -fno-strict-aliasing -fwrapv -fexcess-precision=standard -g -flto -fuse-linker-plugin -fno-omit-frame-pointer -march=native -D_REENTRANT -D_THREAD_SAFE -D_POSIX_PTHREAD_SEMANTICS -o moonshot.so moonshot.c moonshot_worker.c moonshot_jvm.c moonshot_spi.c -I/data/TBase/install/TBase_bin_v2.0/include/postgresql/server -I/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.2/include -I/data/TornadoVM/etc/dependencies/TornadoVM-jdk21/jdk-21.0.2/include/linux
-	
+MODULE_big = moonshot
+
+OBJS = moonshot.o moonshot_worker.o moonshot_jvm.o moonshot_spi.o
+
+EXTENSION = moonshot
+DATA = moonshot--0.0.1.sql
+PGFILEDESC = "moonshot - java language handler"
+
+JAVA_HOME=$(shell readlink -f /usr/bin/javac | sed "s:bin/javac::")
+
+PG_CPPFLAGS += -I$(JAVA_HOME)include -I$(JAVA_HOME)include/linux
+
+PG_CONFIG = pg_config
+PGXS := $(shell $(PG_CONFIG) --pgxs)
+include $(PGXS)
