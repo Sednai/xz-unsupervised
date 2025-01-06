@@ -46,7 +46,7 @@ G : Global background worker (no SPI possible)
 B : User background worker with SPI enabled
 ```
 Note that `|jni_signature` corresponds to the full java function signature and is optional if no complex types or arrays are used in the `arguments` and `returntype`. Currently, supported basic `arguments` are 
-`bytea, boolean, int, long, float4, float8, text`. Complex types consisting of these basic types are supported as argument and require a corresponding class with public variables matching the PG complex type member types. Java native types can be returned directly, while complex types and arrays have to be wrapped as public variables of a class.
+`bytea, boolean, int, long, float4, float8, text`. Complex types consisting of these basic types are supported as argument and require a corresponding class with public variables matching the PG complex type member types. Java native types can be returned directly, while complex types and arrays have to be wrapped as public variables of a class. 
 
 **Example**:
 
@@ -84,18 +84,18 @@ Currently, only the foreground worker supports `SETOF` return. For this, the jav
 
 ```Java
 public static Iterator iter_test() {
-		ArrayList L = new ArrayList<ComplexReturn>();
+    ArrayList L = new ArrayList<ComplexReturn>();
+    
+    ComplexReturn R = new ComplexReturn();
+    R.A = 1;
+    R.B = new double[1];
+    R.B[0] = 0.3;
 		
-		ComplexReturn R = new ComplexReturn();
-		R.A = 1;
-        R.B = new double[1];
-        R.B[0] = 0.3;
+    L.add(T);
+    L.add(T);
+    L.add(T);
 		
-		L.add(T);
-		L.add(T);
-		L.add(T);
-		
-		return L.listIterator();
+    return L.listIterator();
 }
 ```
 
@@ -104,4 +104,29 @@ public static Iterator iter_test() {
 Currently, all security considerations should be dealt with on PG level as no java security policy is implemented. You should not allow arbitrary users to create java functions, as the code will be run as a postgres process. Do not allow users to modify the GUC settings. Also, we advise against using the global background worker for sensitive data.
 
 ## Java API
-...
+
+The Non-JDBC API can only be invoked in foreground mode or in a user based background worker. Build the jar in the `java/` directory with `mvn` and load onto the classpath. The API requires Java 21 and the JVM flags `--enable-preview --enable-native-access=moonshot`
+
+**Example**
+
+```Java
+Moonshot moonshot = new Moonshot();
+		
+try {
+
+    moonshot.connect();
+    
+    moonshot.execute("select colname from tablename");
+    
+    double[] array;
+    do {
+        array = moonshot.fetch_next_double_array(1);
+    }
+    while(array != null);
+    
+    moonshot.disconnect();
+    
+} catch(Throwable t) {
+
+}
+```

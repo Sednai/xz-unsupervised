@@ -455,7 +455,7 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
     
     } else if(strcmp(return_type, "F") == 0) {
     
-        jdouble ret = (*jenv)->CallStaticFloatMethodA(jenv, clazz, methodID, args);
+        jfloat ret = (*jenv)->CallStaticFloatMethodA(jenv, clazz, methodID, args);
         
         // Catch exception
         if( (*jenv)->ExceptionCheck(jenv) ) {
@@ -480,6 +480,31 @@ int call_java_function(Datum* values, bool* primitive, char* class_name, char* m
         values[0] = BoolGetDatum( ret );
     
         return 0;
+
+    } else if(strcmp(return_type, "Ljava/lang/String;") == 0) {
+        jobject ret = (*jenv)->CallStaticObjectMethodA(jenv, clazz, methodID, args);
+     
+        // Catch exception
+        if( (*jenv)->ExceptionCheck(jenv) ) {
+            return 1;
+        }
+        
+        if(ret == NULL) {
+            strcpy(error_msg,"Null pointer returned from java function call");
+            return -3;
+        }
+        
+        //char* str =  (*jenv)->GetStringUTFChars(jenv, ret, false);
+        
+        //values[0] = (Datum) cstring_to_text_with_len("BLA",3);
+        //elog(WARNING,"[DEBUG]: %s", str);
+        
+        //(*jenv)->ReleaseStringUTFChars(jenv, ret, str);
+        
+        elog(ERROR,"String return not implemented yet");
+        
+        return 0;
+
     /*} 
         // TO BE DONE ...
         // Problem for BG worker: limited space in queue package -> Distribute over several

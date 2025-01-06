@@ -910,7 +910,7 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
         bool* nulls = palloc0( natts * sizeof( bool ) );
         bool primitive[natts];
         memset(primitive, 0, sizeof(primitive));
-	
+       // elog(WARNING,"[DEBUG] %s",return_type);
         jfr = call_java_function(values, primitive, class_name, method_name, signature, return_type, &args, error_msg);
     
         if(jfr == 0) {     
@@ -1129,7 +1129,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                     buf[pos] = signature[i];
                     pos++;
                 } else {
-                    
+                    ArrayType* v;
                     switch(signature[i]) {
                         case 'B':
                             switch(pos) {
@@ -1144,10 +1144,47 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                 elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
                             }
                             break;
-                        case 'J':
+                        case 'I':
+                            v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) ); 
                             switch(pos) {
                                 case 1:
-                                    ArrayType* v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );
+                                    if(!ARR_HASNULL(v)) {
+                                        jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+                                        jintArray intArray = (*jenv)->NewIntArray(jenv,nElems);
+                                        (*jenv)->SetIntArrayRegion(jenv, intArray, 0, nElems, (jint*)ARR_DATA_PTR(v));
+                                        target[ac].l = intArray;
+                                        argprim[ac] = 1;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
+                                case 2:
+                                    int nc = 0;
+                                    if(!ARR_HASNULL(v)) {
+                                        jclass cls = (*jenv)->FindClass(jenv,"[I");
+                                        jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0], cls, 0);
+                                        
+                                        for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+                                            // Create inner
+                                            jintArray innerArray = (*jenv)->NewIntArray(jenv,ARR_DIMS(v)[1]);
+                                            (*jenv)->SetIntArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jint *) (ARR_DATA_PTR(v) + nc*sizeof(int) ));
+                                            nc += ARR_DIMS(v)[1];
+                                            (*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+                                            (*jenv)->DeleteLocalRef(jenv,innerArray);
+                                        }    
+                                        target[ac].l = objectArray;
+                                        argprim[ac] = 1;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
+                                elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
+                            }
+                            break;
+                        case 'J':
+                            v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );          
+                            switch(pos) {
+                                case 1:
                                     if(!ARR_HASNULL(v)) {
                                         jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
                                         jlongArray longArray = (*jenv)->NewLongArray(jenv,nElems);
@@ -1158,11 +1195,69 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                         elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
                                     }
                                     break;
+                                case 2:
+                                    int nc = 0;
+                                    if(!ARR_HASNULL(v)) {
+                                        jclass cls = (*jenv)->FindClass(jenv,"[J");
+                                        jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0], cls, 0);
+                                        
+                                        for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+                                            // Create inner
+                                            jlongArray innerArray = (*jenv)->NewLongArray(jenv,ARR_DIMS(v)[1]);
+                                            (*jenv)->SetLongArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jint *) (ARR_DATA_PTR(v) + nc*sizeof(long) ));
+                                            nc += ARR_DIMS(v)[1];
+                                            (*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+                                            (*jenv)->DeleteLocalRef(jenv,innerArray);
+                                        }    
+                                        target[ac].l = objectArray;
+                                        argprim[ac] = 1;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
+                                
+                                elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
+                            }
+                            break;
+                        case 'F':
+                            v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );       
+                            switch(pos) {
+                                case 1:
+                                    if(!ARR_HASNULL(v)) {
+                                        jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+                                        jfloatArray floatArray = (*jenv)->NewFloatArray(jenv,nElems);
+                                        (*jenv)->SetFloatArrayRegion(jenv,floatArray, 0, nElems, (jfloat *)ARR_DATA_PTR(v));
+                                        target[ac].l = floatArray;
+                                        argprim[ac] = 1;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
+                                case 2:
+                                    int nc = 0;
+                                    if(!ARR_HASNULL(v)) {
+                                        jclass cls = (*jenv)->FindClass(jenv,"[F");
+                                        jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0], cls, 0);
+                                        
+                                        for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+                                            // Create inner
+                                            jfloatArray innerArray = (*jenv)->NewFloatArray(jenv,ARR_DIMS(v)[1]);
+                                            (*jenv)->SetFloatArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jfloat *) (ARR_DATA_PTR(v) + nc*sizeof(float) ));
+                                            nc += ARR_DIMS(v)[1];
+                                            (*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+                                            (*jenv)->DeleteLocalRef(jenv,innerArray);
+                                        }    
+                                        target[ac].l = objectArray;
+                                        argprim[ac] = 1;
+                                    } else {
+                                        elog(ERROR,"Array with NULLs not implemented yet for foreground Java worker");     
+                                    }
+                                    break;
                                 elog(ERROR,"Higher dimensional array as argument not implemented yet for foreground Java worker");   
                             }
                             break;
                         case 'D':
-                            ArrayType* v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );       
+                            v = DatumGetArrayTypeP( PG_GETARG_DATUM(ac) );       
                             switch(pos) {
                                 case 1:
                                     if(!ARR_HASNULL(v)) {
@@ -1183,7 +1278,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                         
                                         for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
                                             // Create inner
-                                            jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
+                                            jdoubleArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
                                             (*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
                                             nc += ARR_DIMS(v)[1];
                                             (*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
@@ -1272,7 +1367,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                 }
 
                                 // Get array
-                                ArrayType *v = PG_GETARG_ARRAYTYPE_P(ac);
+                                v = PG_GETARG_ARRAYTYPE_P(ac);
                                 Oid elemType = ARR_ELEMTYPE(v);
                                 Datum  *datums;
                                 bool   *nulls;
@@ -1334,7 +1429,9 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                             }
 
                             break;
-                        elog(ERROR,"Array as argument not implemented yet for foreground Java worker");
+                        
+                        default:
+                            elog(ERROR,"Array type as argument not implemented yet for foreground Java worker");
                     }
                     
                     ac++;
@@ -1354,7 +1451,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                         target[ac].j = (jlong) PG_GETARG_INT64(ac);     
                         break;
                     case 'F':
-                        target[ac].f =  (jfloat) (float) PG_GETARG_FLOAT8(ac);
+                        target[ac].f =  (jfloat) PG_GETARG_FLOAT4(ac);
                         break;
                     case 'D':
                         target[ac].d =  (jdouble) PG_GETARG_FLOAT8(ac);
