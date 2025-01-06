@@ -79,15 +79,15 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
 		worker.bgw_restart_time = BGW_NEVER_RESTART; // Time in s to restart if crash. Use BGW_NEVER_RESTART for no restart;
 		
-		char* WORKER_LIB = GetConfigOption("ms.lib",true,true);
-		
+		//char* WORKER_LIB = GetConfigOption("ms.lib",true,true);
+		char* WORKER_LIB = "$libdir/moonshot.so";
+
 		sprintf(worker.bgw_library_name, WORKER_LIB);
 		sprintf(worker.bgw_function_name, "moonshot_worker_main");
 		
 		snprintf(worker.bgw_name, BGW_MAXLEN, "%s",buf);
 		//snprintf(worker.bgw_name, BGW_MAXLEN, "MW_%s_%d",buf,(n+1));
 			
-		
 		worker.bgw_main_arg = Int32GetDatum(n);
 		worker.bgw_notify_pid = MyProcPid;
 

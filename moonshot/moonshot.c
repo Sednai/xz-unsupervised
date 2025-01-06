@@ -40,8 +40,6 @@
 
 PG_MODULE_MAGIC;
 
-// ToDo: Need two data structures so that user and global bg workers can be used simultaneously
-//worker_data_head *worker_head = NULL;
 worker_data_head *worker_head_user = NULL;
 worker_data_head *worker_head_global = NULL;
 

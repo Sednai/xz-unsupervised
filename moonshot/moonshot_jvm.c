@@ -644,7 +644,7 @@ int call_iter_java_function(Tuplestorestate* tupstore, TupleDesc tupdesc, char* 
         jsize len =  (*jenv)->GetArrayLength(jenv,fieldsList);
         
         if(len == 0) {
-            // NOTE: NATIVE RETURN 
+            elog(ERROR,"Empty composite return for iterator");
         } else {
             // Composite return
             
