@@ -99,10 +99,6 @@ public static Iterator iter_test() {
 }
 ```
 
-## Important remarks
-
-Currently, all security considerations should be dealt with on PG level as no java security policy is implemented. You should not allow arbitrary users to create java functions, as the code will be run as a postgres process. Do not allow users to modify the GUC settings. Also, we advise against using the global background worker for sensitive data.
-
 ## Java API
 
 The Non-JDBC API can only be invoked in foreground mode or in a user based background worker. Build the jar in the `java/` directory with `mvn` and load onto the classpath. The API requires Java 21 and the JVM flags `--enable-preview --enable-native-access=moonshot`
@@ -130,3 +126,12 @@ try {
 
 }
 ```
+
+## Important remarks
+
+- Currently, all security considerations should be dealt with on PG level as no java security policy is implemented. You should not allow arbitrary users to create java functions, as the code will be run as a postgres process. Do not allow users to modify the GUC settings. Also, we advise against using the global background worker for sensitive data.
+
+- The extension is in active development, not all features may be fully implemented yet for all worker types.
+
+- If your session crashes on calling a java function, verify first that the JVM arguments are correct and try first with a foreground worker before raising an issue !
+
