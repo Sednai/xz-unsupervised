@@ -537,7 +537,11 @@ moonshot_worker_main(Datum main_arg)
 	
 	if(activeSPI) {
 		/* Connect to our database */
+#ifdef PGXC
 		BackgroundWorkerInitializeConnectionByOid(dboid, roleoid);
+#else
+		BackgroundWorkerInitializeConnectionByOid(dboid, roleoid, 0);
+#endif
 	}
 
     // Start JVM
