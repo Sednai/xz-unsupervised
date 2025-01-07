@@ -47,6 +47,10 @@ HTAB *function_hash = NULL;
 
 enum { NS_PER_SECOND = 1000000000 };
 
+void GetNAttributes(HeapTupleHeader tuple,
+                int16 N, 
+                Datum* datum, bool *isNull, bool *passbyval);
+                
 
 void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
 {
@@ -1639,7 +1643,7 @@ ms_kill_global_workers(PG_FUNCTION_ARGS) {
 /*
     Get N attributes at once
 */
-GetNAttributes(HeapTupleHeader tuple,
+void GetNAttributes(HeapTupleHeader tuple,
                 int16 N, 
                 Datum* datum, bool *isNull, bool *passbyval) 
 {
