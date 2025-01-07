@@ -2,7 +2,9 @@
 
 package ai.sedn.moonshot;
 
-import java.sql.SQLException;;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Iterator;
 
 public class Tests {
 
@@ -80,7 +82,7 @@ public class Tests {
     }
 
 	public static double test_double3(double[] in) throws SQLException {
-        float ret = 0;
+        double ret = 0;
 		for(int i = 0; i < in.length; i++) {
 			ret += in[i];
         }
@@ -88,7 +90,7 @@ public class Tests {
     }
 	
 	public static double test_double4(double[][] in) throws SQLException {
-		float ret = 0;
+		double ret = 0;
 		for(int i = 0; i < in.length; i++) {
 			for(int j = 0; j < in[i].length; j++) {
 				ret += in[i][j];
@@ -97,8 +99,42 @@ public class Tests {
 		return ret;
 	}
 	
+	/*
+	 * Complex types
+	 */
+	public static TestType1 test_complextype1(int in1, double in2) {
+		TestType1 R = new TestType1();
+		
+		R.A = in1;
+		R.B = in2;
+		
+		return R;
+	}
 	
+	public static TestType1 test_complextype2(TestType1[] in) {
+		TestType1 R = new TestType1();
+		
+		R.A = in[0].A;
+		R.B = in[0].B;
+		
+		return R;
+	}
 	
+	/*
+	 * Setof return
+	 */
+	public static Iterator test_setof1(TestType1[] in) {
+		ArrayList L = new ArrayList<TestType1>();
+	
+		for(int i = 0; i < in.length; i++) {
+			TestType1 R = new TestType1();
+			R.A = in[i].A;
+			R.B = in[i].B;
+			L.add(R);
+		}
+	
+		return L.listIterator();
+	}
 	
 }
 

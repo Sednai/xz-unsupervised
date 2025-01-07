@@ -156,6 +156,19 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 					(*jenv)->SetByteArrayRegion(jenv, byteArray, 0, nElems, (jbyte*)VARDATA(bytes));
 					args[i].l = byteArray;
 					break;
+				case 'I':
+					arg = datumDeSerialize(&pos, &isnull);
+					v = DatumGetArrayTypeP(arg);
+					if(!ARR_HASNULL(v)) {
+						jsize      nElems = (jsize)ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v));
+						jintArray intArray = (*jenv)->NewIntArray(jenv,nElems);
+						(*jenv)->SetIntArrayRegion(jenv,intArray, 0, nElems, (jint*)ARR_DATA_PTR(v));
+						args[i].l = intArray;
+					} else {
+						strcpy(entry->data,"Array with null not supported yet");
+						return -1;
+					}
+					break;
 				case 'J':
 					arg = datumDeSerialize(&pos, &isnull);
 					v = DatumGetArrayTypeP(arg);
@@ -197,19 +210,38 @@ argDeSerializer(jvalue* args, short* argprim, worker_exec_entry* entry) {
 					break;
 				case '[':
 					arg = datumDeSerialize(&pos, &isnull);
-
+					int nc;
 					// 2D arrays;
 					switch(T[2]) {
+						case 'I':
+							v = DatumGetArrayTypeP(arg);
+							nc = 0;
+							if(!ARR_HASNULL(v)) {
+								jclass cls = (*jenv)->FindClass(jenv,"[I");
+								jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0],cls,0);
+								
+								for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
+									// Create inner
+									jintArray innerArray = (*jenv)->NewIntArray(jenv,ARR_DIMS(v)[1]);
+									(*jenv)->SetIntArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jint *) (ARR_DATA_PTR(v) + nc*sizeof(int) ));
+									nc += ARR_DIMS(v)[1];
+									(*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
+									(*jenv)->DeleteLocalRef(jenv,innerArray);
+								}
+								
+								args[i].l = objectArray;
+								break;
+							}	
 						case 'D':
 							v = DatumGetArrayTypeP(arg);
-							int nc = 0;
+							nc = 0;
 							if(!ARR_HASNULL(v)) {
 								jclass cls = (*jenv)->FindClass(jenv,"[D");
 								jobjectArray objectArray = (*jenv)->NewObjectArray(jenv, ARR_DIMS(v)[0],cls,0);
 								
 								for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
 									// Create inner
-									jfloatArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
+									jdoubleArray innerArray = (*jenv)->NewDoubleArray(jenv,ARR_DIMS(v)[1]);
 									(*jenv)->SetDoubleArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jdouble *) (ARR_DATA_PTR(v) + nc*sizeof(double) ));
 									nc += ARR_DIMS(v)[1];
 									(*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);

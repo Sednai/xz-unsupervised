@@ -755,7 +755,7 @@ char** readOptions(char* filename, int* N) {
     FILE *file;
     file = fopen(filename,"r");
     if(file == NULL) {
-        elog(ERROR,"File %s not found: %d",filename,errno);
+        elog(ERROR,"File %s not found",filename);
     }
     char **lines = NULL;
     char *line =  NULL;
