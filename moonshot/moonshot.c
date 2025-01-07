@@ -234,7 +234,7 @@ static Datum java_func_handler(PG_FUNCTION_ARGS)
         // Background with SPI
         retr = control_bgworkers(fcinfo, MAX_WORKERS, true, false, centry->class_name, centry->method_name, centry->signature, centry->return_type);
     } else 
-        elog(ERROR,"Not supported worker type: %s",centry->mode[0]);
+        elog(ERROR,"Not supported worker type: %s",centry->mode);
     
     MemoryContextSwitchTo(oldctx);
 
@@ -554,9 +554,13 @@ Datum control_bgworkers(FunctionCallInfo fcinfo, int n_workers, bool need_SPI, b
         
         entry->n_return = natts;
         entry->notify_latch = MyLatch;
-        
+
+#ifdef PGXC        
         entry->n_args = argSerializer(entry->data, signature, &fcinfo->arg );
-       
+#else
+        entry->n_args = argSerializer(entry->data, signature, &fcinfo->args );
+#endif
+
         // Push
         dlist_push_tail(&worker_head->exec_list,&entry->node);
     
@@ -1632,8 +1636,9 @@ ms_kill_global_workers(PG_FUNCTION_ARGS) {
 }
 
 
-// Taken from PG and extended
-void
+/*
+    Get N attributes at once
+*/
 GetNAttributes(HeapTupleHeader tuple,
                 int16 N, 
                 Datum* datum, bool *isNull, bool *passbyval) 
@@ -1662,13 +1667,19 @@ GetNAttributes(HeapTupleHeader tuple,
     tmptup.t_len = HeapTupleHeaderGetDatumLength(tuple);
     ItemPointerSetInvalid(&(tmptup.t_self));
     tmptup.t_tableOid = InvalidOid;
-	tmptup.t_xc_node_id = InvalidOid;
     tmptup.t_data = tuple;
+#ifdef PGXC
+	tmptup.t_xc_node_id = InvalidOid;
+#endif
     
     for(int16 a = 0; a < N; a++) 
     {
+
+#ifdef PGXC
         passbyval[a] = tupDesc->attrs[a]->attbyval;
-        
+#else
+        passbyval[a] = tupDesc->attrs[a].attbyval;
+#endif
         datum[a] = heap_getattr(&tmptup,
                           a+1,
                           tupDesc,

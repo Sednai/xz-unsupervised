@@ -8,7 +8,7 @@ PGFILEDESC = "moonshot - java language handler"
 
 JAVA_HOME=$(shell readlink -f /usr/bin/javac | sed "s:bin/javac::")
 
-PG_CPPFLAGS += -I$(JAVA_HOME)include -I$(JAVA_HOME)include/linux
+PG_CPPFLAGS += -std=c99 -Wno-error=vla -I$(JAVA_HOME)include -I$(JAVA_HOME)include/linux
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
