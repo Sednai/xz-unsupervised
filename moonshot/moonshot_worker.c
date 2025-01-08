@@ -550,13 +550,13 @@ moonshot_worker_main(Datum main_arg)
 								   sizeof(worker_data_head),
 								   &found);
 #else
-   worker_head = GetNamedDSMSegment(buf,
+    worker_head = GetNamedDSMSegment(MyBgworkerEntry->bgw_name,
 								   sizeof(worker_data_head),
 								   NULL,
 								   &found);
 #endif
 	if(!found) {
-		elog(ERROR,"Shared memory for background worker has not been initialized");
+		elog(ERROR,"Shared memory for background worker has not been initialized (%s)",buf);
 		/*
 		// initialize worker data header 
 		memset(worker_head, 0, sizeof(worker_data_head));
