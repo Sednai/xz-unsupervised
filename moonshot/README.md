@@ -3,7 +3,13 @@
 - Supports JVM in user session or as background process
 - Support for native 2D arrays
 - (Experimental) Non-JDBC data querying via SPI using the Java Foreign Function and Memory API
+- Stack trace return for Java exceptions
 - Minimalistic code base
+
+## Requirements
+- Linux
+- Postgres 17
+- Java 21 (for Non-JDBC API)
 
 ## Configuration & Installation
 
@@ -26,7 +32,7 @@ Java settings can be set in `postgres.conf` via the following options:
 ms.libjvm = '/jdk-path/lib/server/libjvm.so'
 ms.jvmoptions = '-Djava.class.path=' 
 ```
-Note that only JNI compatible options are supported. Additional settings can be read from an external file by adding `@filename` options to `ms.jvmoptions`. 
+Note that only JNI compatible Java options are supported. Additional settings can be read from external files by adding `@filename` options to `ms.jvmoptions`. 
 
 In postgres, execute
 ```SQL
@@ -46,7 +52,7 @@ G : Global background worker (no SPI possible)
 B : User background worker with SPI enabled
 ```
 Note that `|jni_signature` corresponds to the full java function signature and is optional if no complex types or arrays are used in the `arguments` and `returntype`. Currently, supported basic `arguments` are 
-`bytea, boolean, int, long, float4, float8, text`. Complex types consisting of these basic types are supported as argument and require a corresponding class with public variables matching the PG complex type member types. Java native types can be returned directly, while complex types and arrays have to be wrapped as public variables of a class. 
+`bytea, boolean, int, long, float4, float8, text`. Complex types consisting of these basic types are supported as argument and return, and require a corresponding class with public variables matching the PG complex type member types. Java native types and complex types can be returned directly, while arrays have to be wrapped by a complex type. 
 
 **Example**:
 
@@ -78,7 +84,7 @@ create type complexreturn as (a int, b float8[]);
 create function func_test(int, float8) returns complexreturn as 'F|my/classpath/my_functions|func_test' LANGUAGE MSJAVA;
 ```
 
-Currently, only the foreground worker supports `SETOF` return. For this, the java function has to return an `iterator`.  
+Currently, only the foreground worker supports `SETOF` return. For this, the java function has to return an `iterator` of a complex type.  
 
 **Example**:
 

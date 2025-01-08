@@ -50,7 +50,7 @@ enum { NS_PER_SECOND = 1000000000 };
 void GetNAttributes(HeapTupleHeader tuple,
                 int16 N, 
                 Datum* datum, bool *isNull, bool *passbyval);
-                
+
 
 void sub_timespec(struct timespec t1, struct timespec t2, struct timespec *td)
 {
@@ -948,7 +948,6 @@ Datum control_fgworker(FunctionCallInfo fcinfo, bool need_SPI, char* class_name,
 
         jfr = call_iter_java_function(tupstore,tupdesc,class_name, method_name, signature, &args, error_msg);
 
-        tuplestore_donestoring(tupstore);
         MemoryContextSwitchTo(oldcontext);
     }
     
@@ -1682,7 +1681,7 @@ void GetNAttributes(HeapTupleHeader tuple,
 #ifdef PGXC
         passbyval[a] = tupDesc->attrs[a]->attbyval;
 #else
-        passbyval[a] = tupDesc->attrs[a].attbyval;
+        passbyval[a] = TupleDescAttr(tupDesc, a)->attbyval;
 #endif
         datum[a] = heap_getattr(&tmptup,
                           a+1,

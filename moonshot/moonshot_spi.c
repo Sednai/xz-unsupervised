@@ -1,6 +1,7 @@
 #include "moonshot_spi.h"
 #include "postgres.h"
 #include "executor/spi.h" 
+#include "utils/array.h"
 #include "math.h"
 
 bool SPI_connected = false;
@@ -164,7 +165,7 @@ bool fetch_next() {
                         bool isnull;
                         Datum col = SPI_getbinval(row, tupdesc, c+1, &isnull);
                         
-                        if(~isnull) {
+                        if(!isnull) {
                             RCACHE.data[i*RCACHE.ncols + c] = col;
                         } else {
                             // ToDo: Setting for null treatment !
@@ -288,7 +289,7 @@ double_array_data* fetch_next_double_array(int column) {
                     bool isnull;
                     Datum col = SPI_getbinval(row, tupdesc, column, &isnull);
                     
-                    if(~isnull) {
+                    if(!isnull) {
                         prefetch[i] = col;
                     }
                 }

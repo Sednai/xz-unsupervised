@@ -28,6 +28,10 @@
 #include "utils/snapmgr.h"
 #include "math.h"
 
+#ifndef PGXC
+#include "storage/dsm_registry.h" 
+#endif
+
 bool got_signal = false;
 int worker_id;
 static worker_data_head *worker_head = NULL;
@@ -47,9 +51,19 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 
 	/* initialize worker data header */
     bool found = false;
+
+#ifdef PGXC
     worker_head = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
+#else
+    worker_head = GetNamedDSMSegment(buf,
+								   sizeof(worker_data_head),
+								   NULL,
+								   &found);
+
+#endif
+
 	if (found && worker_head->n_workers > 0) {
     	return worker_head;
     }
@@ -531,9 +545,16 @@ moonshot_worker_main(Datum main_arg)
 
 	// Attach to shared memory
 	bool found;
+#ifdef PGXC
 	worker_head = ShmemInitStruct(MyBgworkerEntry->bgw_name,
 								   sizeof(worker_data_head),
 								   &found);
+#else
+   worker_head = GetNamedDSMSegment(buf,
+								   sizeof(worker_data_head),
+								   NULL,
+								   &found);
+#endif
 	if(!found) {
 		elog(ERROR,"Shared memory for background worker has not been initialized");
 		/*
