@@ -1488,10 +1488,13 @@ ms_clear_user_queue(PG_FUNCTION_ARGS) {
         char buf[12];
         snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
+        LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
         bool found = false;
-        worker_head_user = ShmemInitStruct(buf,
-								   sizeof(worker_data_head),
-								   &found);
+        worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
+                                    sizeof(worker_data_head),
+                                    &found);
+        LWLockRelease(AddinShmemInitLock);
+        
         if(!found) {
             worker_head_user->n_workers = 0;
         }
@@ -1525,10 +1528,13 @@ ms_show_user_queue(PG_FUNCTION_ARGS) {
         char buf[12];
         snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
+        LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
         bool found = false;
-        worker_head_user = ShmemInitStruct(buf,
-								   sizeof(worker_data_head),
-								   &found);
+        worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
+                                    sizeof(worker_data_head),
+                                    &found);
+        LWLockRelease(AddinShmemInitLock);
+
         if(!found) {
             worker_head_user->n_workers = 0;
         }
@@ -1562,10 +1568,13 @@ ms_kill_user_workers(PG_FUNCTION_ARGS) {
     char buf[BGW_MAXLEN];
     snprintf(buf, BGW_MAXLEN, "MW_%d_%d", roleid, dbid); 
     
+    LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
     bool found = false;
-    worker_data_head* worker_head_user = ShmemInitStruct(buf,
-                            sizeof(worker_data_head),
-                            &found);
+    worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
+                                sizeof(worker_data_head),
+                                &found);
+    LWLockRelease(AddinShmemInitLock);
+
     if(!found) {
         worker_head_user->n_workers = 0;
         elog(ERROR,"Can not kill workers if not started yet");
@@ -1598,10 +1607,13 @@ ms_kill_global_workers(PG_FUNCTION_ARGS) {
     char buf[BGW_MAXLEN];
     snprintf(buf, BGW_MAXLEN, "MW_global"); 
         
+    LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
     bool found = false;
-    worker_data_head* worker_head_global = ShmemInitStruct(buf,
+    worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
                                 sizeof(worker_data_head),
                                 &found);
+    LWLockRelease(AddinShmemInitLock);
+	
     if(!found) {
         worker_head_global->n_workers = 0;
         elog(ERROR,"Can not kill workers if not started yet (shared mem blank)");

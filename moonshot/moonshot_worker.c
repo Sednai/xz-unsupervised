@@ -30,22 +30,32 @@ int worker_id;
 
 static worker_data_head *worker_head = NULL;
 
-/* hooks */
 #ifndef PGXC
+/* hook */
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 
-prev_shmem_request_hook = shmem_request_hook;
-shmem_request_hook = ms_shmem_request;
-
-/* Reserve shared memory */
-static void
-ms_shmem_request(void)
+/*
+ * Module load callback
+ */
+void
+_PG_init(void)
 {
-	if (prev_shmem_request_hook)
-		prev_shmem_request_hook();
+	if (!process_shared_preload_libraries_in_progress)
+			return;
 
-	RequestAddinShmemSpace(MAX_USERS*sizeof(worker_data_head));
-	RequestNamedLWLockTranche("ms_background_workers", 1);
+	prev_shmem_request_hook = shmem_request_hook;
+	shmem_request_hook = ms_shmem_request;
+
+	/* Reserve shared memory */
+	static void
+	ms_shmem_request(void)
+	{
+		if (prev_shmem_request_hook)
+			prev_shmem_request_hook();
+
+		RequestAddinShmemSpace(MAX_USERS*sizeof(worker_data_head));
+		RequestNamedLWLockTranche("ms_background_workers", 1);
+	}
 }
 #endif
 
@@ -64,12 +74,13 @@ launch_dynamic_workers(int32 n_workers, bool needSPI, bool globalWorker)
 	}
 
 	/* initialize worker data header */
+	LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
     bool found = false;
-
-    worker_head = ShmemInitStruct(buf,
+    worker_head = (worker_data_head*) ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
 								   &found);
-
+	LWLockRelease(AddinShmemInitLock);
+	
 	if (found && worker_head->n_workers > 0) {
     	return worker_head;
     }
@@ -553,7 +564,7 @@ moonshot_worker_main(Datum main_arg)
 	// Attach to shared memory
 	bool found;
 
-	worker_head = ShmemInitStruct(MyBgworkerEntry->bgw_name,
+	worker_head = (worker_data_head*) ShmemInitStruct(MyBgworkerEntry->bgw_name,
 								   sizeof(worker_data_head),
 								   &found);
 
