@@ -1213,7 +1213,7 @@ int argToJava(jvalue* target, char* signature, FunctionCallInfo fcinfo, short* a
                                         for (int idx = 0; idx < ARR_DIMS(v)[0]; ++idx) {
                                             // Create inner
                                             jlongArray innerArray = (*jenv)->NewLongArray(jenv,ARR_DIMS(v)[1]);
-                                            (*jenv)->SetLongArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jint *) (ARR_DATA_PTR(v) + nc*sizeof(long) ));
+                                            (*jenv)->SetLongArrayRegion(jenv, innerArray, 0, ARR_DIMS(v)[1], (jlong *) (ARR_DATA_PTR(v) + nc*sizeof(long) ));
                                             nc += ARR_DIMS(v)[1];
                                             (*jenv)->SetObjectArrayElement(jenv, objectArray, idx, innerArray);
                                             (*jenv)->DeleteLocalRef(jenv,innerArray);
@@ -1491,8 +1491,8 @@ ms_clear_user_queue(PG_FUNCTION_ARGS) {
         snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
         LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-        bool found = false;
-        worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
+        bool found;
+        worker_data_head* worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
                                     sizeof(worker_data_head),
                                     &found);
         LWLockRelease(AddinShmemInitLock);
@@ -1531,8 +1531,8 @@ ms_show_user_queue(PG_FUNCTION_ARGS) {
         snprintf(buf, 12, "MW_%d_%d", roleid, dbid); 
         
         LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-        bool found = false;
-        worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
+        bool found;
+        worker_data_head* worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
                                     sizeof(worker_data_head),
                                     &found);
         LWLockRelease(AddinShmemInitLock);
@@ -1571,8 +1571,8 @@ ms_kill_user_workers(PG_FUNCTION_ARGS) {
     snprintf(buf, BGW_MAXLEN, "MW_%d_%d", roleid, dbid); 
     
     LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-    bool found = false;
-    worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
+    bool found;
+    worker_data_head* worker_head_user = (worker_data_head*) ShmemInitStruct(buf,
                                 sizeof(worker_data_head),
                                 &found);
     LWLockRelease(AddinShmemInitLock);
@@ -1610,7 +1610,7 @@ ms_kill_global_workers(PG_FUNCTION_ARGS) {
     snprintf(buf, BGW_MAXLEN, "MW_global"); 
         
     LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-    bool found = false;
+    bool found;
     worker_data_head* worker_head_global = (worker_data_head*) ShmemInitStruct(buf,
                                 sizeof(worker_data_head),
                                 &found);
