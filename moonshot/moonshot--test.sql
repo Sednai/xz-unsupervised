@@ -91,7 +91,15 @@ CREATE OR REPLACE FUNCTION f_test_setof1(TESTTYPE1[]) RETURNS SETOF TESTTYPE1 AS
 
 SELECT f_test_setof1(ARRAY[(1,0.1)::TESTTYPE1,(2,0.2)::TESTTYPE1,(3,0.3)::TESTTYPE1]);
 
+--Non-JDBC
+CREATE TABLE test_table1(id int, data float8[]);
+INSERT INTO test_table1 (id,data) VALUES (1,'{0.1,0.03,0.05,1.23}'),(2,'{0.5,0.23,0.15,1.53}'),(3,'{0.25,0.63,0.29,3.19}');
 
+CREATE OR REPLACE FUNCTION f_test_njdbc1() RETURNS SETOF TESTTYPE1 AS 'S|ai/sedn/moonshot/Tests|test_njdbc1|()Ljava/util/Iterator;' LANGUAGE MSJAVA;
 
+SELECT f_test_njdbc1();
+
+--Cleanup
+DROP TABLE test_table1;
 DROP TYPE TESTTYPE1 CASCADE;
 DROP EXTENSION MOONSHOT CASCADE;

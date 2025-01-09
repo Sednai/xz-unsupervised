@@ -2,12 +2,12 @@
 ## Features
 - Supports JVM in user session or as background process
 - Support for native 2D arrays
-- (Experimental) Non-JDBC data querying via SPI using the Java Foreign Function and Memory API
+- (Experimental) Non-JDBC data querying via SPI using the Java Foreign Function and Memory API (read only)
 - Stack trace return for Java exceptions
 - Minimalistic code base
 
 ## Requirements
-- Linux
+- Linux, gcc, make, mvn
 - Postgres 10+
 - Java 21 (for Non-JDBC API)
 
@@ -122,17 +122,19 @@ try {
     moonshot.execute("select colname from tablename");
     
     double[] array;
-    do {
-        array = moonshot.fetch_next_double_array(1);
-    }
-    while(array != null);
-    
+    while(moonshot.fetch_next()) {
+        array = moonshot.getdoublearray(1);
+	}
+		     
     moonshot.disconnect();
     
 } catch(Throwable t) {
 
 }
 ```
+
+For more examples, see `moonshot-test.sql` and `Tests.java`.
+
 
 ## Important remarks
 

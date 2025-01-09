@@ -136,5 +136,32 @@ public class Tests {
 		return L.listIterator();
 	}
 	
+	/*
+	 * Non-JDBC
+	 */
+	public static Iterator test_njdbc1() throws Throwable {
+		
+		ArrayList<TestType1> L = new ArrayList<TestType1>();
+		
+		Moonshot moonshot = new Moonshot();
+			
+	    moonshot.connect();
+	    
+	    moonshot.execute("select id,data from test_table1");
+	    
+	    while(moonshot.fetch_next()) {
+			TestType1 R = new TestType1();
+	    	R.A = moonshot.getint(1);
+			R.B = moonshot.getdoublearray(2)[0];
+	    	
+	    	L.add(R);
+	    }
+	    
+	    moonshot.disconnect();
+	
+		return L.listIterator();
+		
+	}
+	
 }
 
