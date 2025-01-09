@@ -8,7 +8,7 @@
 
 ## Requirements
 - Linux
-- Postgres 17
+- Postgres 10+
 - Java 21 (for Non-JDBC API)
 
 ## Configuration & Installation
@@ -16,11 +16,12 @@
 The operation mode as background process is implemented via shared memory and a task queue. The number of background JVM workers, queue size and data capacity is hard-coded in `moonshot_worker.h` via the following defines:
 
 ```C
+#define MAX_USERS 1+1
 #define MAX_WORKERS 1
 #define MAX_QUEUE_LENGTH 16
 #define MAX_DATA 2097152
 ```
-You should make sure for your use case that `MAX_DATA` (in bytes) is sufficiently large to accommodate the arguments to the Java function call, respectively the returned result. The total shared memory reserved will be `MAX_QUEUE_LENGTH * MAX_DATA`. `MAX_QUEUE_LENGTH` should be adapted to your expected work load. Note that a PG error will be thrown under calls in case the queue is full. 
+You should make sure for your use case that `MAX_DATA` (in bytes) is sufficiently large to accommodate the arguments to the Java function call, respectively the returned result. The total shared memory reserved will be `MAX_QUEUE_LENGTH * MAX_DATA * MAX_USERS`. `MAX_QUEUE_LENGTH` should be adapted to your expected work load. Note that a PG error will be thrown under calls in case the queue is full. `MAX_USERS` is the maximum number of users which can start own Java background worker processes. Set to 1 if only a global background worker is needed. (In the future, we plan to switch to the new PG17 DSM API, which should allow for more flexibility.) `MAX_WORKERS` is the number of workers started to process a global or user queue.
 
 For installation, execute
 ```
