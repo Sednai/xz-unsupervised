@@ -38,6 +38,8 @@
 #include "utils/syscache.h"
 #include "utils/hsearch.h"
 
+#include "storage/proc.h"
+
 PG_MODULE_MAGIC;
 
 worker_data_head *worker_head_user = NULL;

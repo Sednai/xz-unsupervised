@@ -33,6 +33,7 @@ static worker_data_head *worker_head = NULL;
 #ifndef PGXC
 /* hook */
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
+static void ms_shmem_request(void);
 
 /*
  * Module load callback
@@ -45,17 +46,17 @@ _PG_init(void)
 
 	prev_shmem_request_hook = shmem_request_hook;
 	shmem_request_hook = ms_shmem_request;
+}
 
-	/* Reserve shared memory */
-	static void
-	ms_shmem_request(void)
-	{
-		if (prev_shmem_request_hook)
-			prev_shmem_request_hook();
+/* Reserve shared memory */
+static void
+ms_shmem_request(void)
+{
+	if (prev_shmem_request_hook)
+		prev_shmem_request_hook();
 
-		RequestAddinShmemSpace(MAX_USERS*sizeof(worker_data_head));
-		RequestNamedLWLockTranche("ms_background_workers", 1);
-	}
+	RequestAddinShmemSpace(mul_size(MAX_USERS,sizeof(worker_data_head)));
+	RequestNamedLWLockTranche("ms_background_workers", 1);
 }
 #endif
 
