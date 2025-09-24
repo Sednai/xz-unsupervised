@@ -35,6 +35,7 @@ import java.lang.invoke.VarHandle;
 import java.lang.foreign.SegmentAllocator;
 import java.lang.foreign.ValueLayout;
 
+import ai.sedn.plunijava.*;
 /**
  * Distributed kmeans via stochastic gradient descent
  * 
@@ -87,11 +88,11 @@ public class Kmeans {
 		
 		
 		GradientReturn T =  new GradientReturn();
-		T.Test1 = new float[2][2];
-		T.Test2 = new int[3];
-		T.Test3 = new float[5];
-		T.Test2[0] = 4;
-		T.Test2[2] = 2;
+		T.gradients = new float[2][2];
+		T.counts = new int[3];
+		T.stats = new float[5];
+		T.counts[0] = 4;
+		T.counts[2] = 2;
 		
 		return T;
 	
@@ -131,15 +132,122 @@ public class Kmeans {
 		}
 		
 		GradientReturn T =  new GradientReturn();
-		//T.Test1 = new float[3];
-		//T.Test2 = new float[5];
-		//T.Test3 = new float[2];
+		//T.gradients = new float[3];
+		//T.counts = new float[5];
+		//T.stats = new float[2];
 	
 		return T;
 		
 		
 	}
 	
+	public static GradientReturn kmeans_gradients_cpu_float_pluj(String table, String cols, int K, float batch_percent, float[] in_centroids) throws SQLException {
+		
+		// Prepare statistics collection
+		float[] runstats = new float[3];
+		long tic_global = System.nanoTime();
+		
+		// Prepare data
+		db_object rs = prepare_db_data_pluj(table,cols,batch_percent);
+		PlUniJava moonshot = rs.P;
+		
+		long tic = System.nanoTime();
+		
+		//int Nc = 79;
+		//int K = 5;
+		
+		// # columns
+		int Nc = rs.Nc;
+		// Unpack initial centroids;
+		
+		float[][] centroids = float_1D_to_float_2D(in_centroids, K, Nc);	
+		float[] centroids_L = approx_eucld_centroid_length(centroids, K, Nc);
+		
+		// Cluster member count
+		int[] ncount = new int[K];
+		// Gradients
+		float[][] gradients = new float[K][Nc];
+			
+		float[] v = new float[Nc];
+	
+		// Main loop over data
+		try {
+			while ( moonshot.fetch_next() ) {
+				
+				long tic_io = System.nanoTime();
+				double[] A = moonshot.getdoublearray(1);// <- To be changed after change in DB ! ( to Float )
+				
+				if(A == null) {	
+					System.out.println("[DEBUG]: NULL ARRAY!");
+					
+					break;
+				}
+					
+				for(int c = 0; c < Nc; c++) {
+					//v[c] = A[c].floatValue();
+					v[c] = (float) A[c];
+					//v[c] = B[c].floatValue();				
+				}
+				
+				runstats[1] += System.nanoTime() - tic_io;
+				
+				// Find min distance centroid
+				long tic_cpu = System.nanoTime();
+				int minc = 0;
+				float d = approx_euclidean_distance(v,centroids[0],centroids_L[0]);
+				for(int k = 1; k < K; k++) {
+					
+					float dist = approx_euclidean_distance(v,centroids[k],centroids_L[k]);
+					
+					if(dist < d) {
+						minc = k;
+						d = dist;
+					}
+				}
+				
+				runstats[2] += System.nanoTime() - tic_cpu;
+				
+				ncount[minc]++;
+				
+				// Add to gradient
+				vec_add(gradients[minc],v);
+			}
+			
+		} catch(Throwable t) {		
+			throw new SQLException(t);
+		}
+		
+		
+		// Add centroid contributions
+		for(int k = 0; k < K; k++) {
+			vec_muladd(gradients[k],-ncount[k],centroids[k]);
+		}
+		
+		runstats[0] = (System.nanoTime() - tic_global)/1e6f;
+		runstats[1] /= 1e6f;
+		runstats[2] /= 1e6f;
+		
+		GradientReturn T =  new GradientReturn();
+		
+		T.gradients = gradients;
+		T.counts = ncount;
+		T.stats = runstats;
+			
+		try {
+			moonshot.disconnect();
+		} catch(Throwable t) {
+			throw new SQLException(t);
+		}
+		
+		
+		// Force GC
+		System.gc();
+		System.runFinalization();
+		
+		return T;
+	}
+
+	@Deprecated
 	public static GradientReturn kmeans_gradients_cpu_float_ms(String table, String cols, int K, float batch_percent, float[] in_centroids) throws SQLException {
 		
 		// Prepare statistics collection
@@ -230,9 +338,9 @@ public class Kmeans {
 		
 		GradientReturn T =  new GradientReturn();
 		
-		T.Test1 = gradients;
-		T.Test2 = ncount;
-		T.Test3 = runstats;
+		T.gradients = gradients;
+		T.counts = ncount;
+		T.stats = runstats;
 		
 		
 		try {
@@ -250,15 +358,15 @@ public class Kmeans {
 		return T;
 	}
 
-	
-	public static GradientReturn kmeans_gradients_tvm_float_ms(String table, String cols, int Kin, float batch_percent, int tvm_batch_size, float[] in_centroids) throws SQLException {
+	public static GradientReturn kmeans_gradients_tvm_float_pluj(String table, String cols, int Kin, float batch_percent, int tvm_batch_size, float[] in_centroids) throws SQLException {
 		// Prepare stats
 		float[] runstats = new float[3];
 		
 		long tic_global = System.nanoTime();
 		// Prepare data ResultSet
-		db_object rs = prepare_db_data_moonshot(table,cols,batch_percent);
-		Moonshot moonshot = rs.M;
+		db_object rs = prepare_db_data_pluj(table,cols,batch_percent);
+		PlUniJava moonshot = rs.P;
+
 		// Vars for Tornado
 		int[] Nc = new int[1];
 		Nc[0] = rs.Nc;
@@ -291,8 +399,8 @@ public class Kmeans {
 		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
 		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
 		
-		gridScheduler.setWorkerGrid("s0.t0", gridworker);
-		gridScheduler.setWorkerGrid("s0.t1", gridworker);
+		gridScheduler.addWorkerGrid("s0.t0", gridworker);
+		gridScheduler.addWorkerGrid("s0.t1", gridworker);
 		
 		// Init return vars
 		int[] ncount = new int[K[0]];
@@ -367,9 +475,142 @@ public class Kmeans {
 		
 		GradientReturn T =  new GradientReturn();
 		
-		T.Test1 = gradients;
-		T.Test2 = ncount;
-		T.Test3 = runstats;
+		T.gradients = gradients;
+		T.counts = ncount;
+		T.stats = runstats;
+	
+		try {
+			moonshot.disconnect();
+		} catch(Throwable t) {
+			throw new SQLException(t);
+		}
+	
+		// Force GC
+		System.gc();
+		System.runFinalization();
+		return T;
+	}
+
+	@Deprecated
+	public static GradientReturn kmeans_gradients_tvm_float_ms(String table, String cols, int Kin, float batch_percent, int tvm_batch_size, float[] in_centroids) throws SQLException {
+		// Prepare stats
+		float[] runstats = new float[3];
+		
+		long tic_global = System.nanoTime();
+		// Prepare data ResultSet
+		db_object rs = prepare_db_data_moonshot(table,cols,batch_percent);
+		Moonshot moonshot = rs.M;
+		// Vars for Tornado
+		int[] Nc = new int[1];
+		Nc[0] = rs.Nc;
+		
+		int[] N = new int[1];
+		float[] centroids = new float[Kin*Nc[0]];
+		System.arraycopy(in_centroids, 0, centroids, 0, in_centroids.length);
+		
+		int[] ccentroid = new int[tvm_batch_size];
+		float[] v_batch = new float[tvm_batch_size*Nc[0]];
+		float[] d = new float[tvm_batch_size*Kin];
+		int[] K = new int[1];
+		K[0] = Kin;
+			
+		// Centroids length
+		float[] centroids_L = approx_eucld_centroid_length(float_1D_to_float_2D(in_centroids, K[0], Nc[0]), K[0], Nc[0]);
+				
+		// Init Tornado
+		WorkerGrid  gridworker = new WorkerGrid1D(N[0]);
+		
+		GridScheduler gridScheduler = new GridScheduler();
+		
+		KernelContext context = new KernelContext();
+		TaskGraph taskGraph = new TaskGraph("s0")
+				.transferToDevice(DataTransferMode.FIRST_EXECUTION, centroids, ccentroid, d, Nc, K, centroids_L)       	
+				.transferToDevice(DataTransferMode.EVERY_EXECUTION, v_batch, N)
+	        	.task("t0", Kmeans::approx_euclidean_distance_tvm_kernel, context,  v_batch, centroids, N, d, Nc, K, centroids_L)
+	        	.task("t1", Kmeans::search_min_distance_tvm_kernel, context, d, N, ccentroid, K)
+	        	.transferToHost(DataTransferMode.EVERY_EXECUTION, ccentroid);
+		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
+		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
+		
+		gridScheduler.addWorkerGrid("s0.t0", gridworker);
+		gridScheduler.addWorkerGrid("s0.t1", gridworker);
+		
+		// Init return vars
+		int[] ncount = new int[K[0]];
+		float[][] gradients = new float[K[0]][Nc[0]];
+
+		// Do batching
+		boolean stop = false;
+		try {
+			while(!stop) {
+				
+				// Build batch
+				long tic_io = System.nanoTime();
+				N[0] = 0;
+				for(int i = 0; i < tvm_batch_size; i++) {
+					
+					if(!moonshot.fetch_next()) {
+						stop = true;
+						break;
+					}	
+					double[] A = moonshot.getdoublearray(1);// <- To be changed after change in DB ! ( to Float )
+					
+					if(A == null) {	
+						System.out.println("[DEBUG]: NULL ARRAY!");
+						
+						break;
+					}
+						
+					for(int c = 0; c < Nc[0]; c++) {
+						v_batch[i*Nc[0]+c] = (float) A[c];
+					}
+			
+					N[0]++;
+				}
+				long toc_io = System.nanoTime();
+				runstats[1] += toc_io-tic_io;
+				
+				// Calc
+				if(N[0] > 0) {
+					long tic_tvm = System.nanoTime();
+					// Calc all distances
+					gridworker.setGlobalWork(N[0], 1, 1);
+					
+		    	    executor_distance.withGridScheduler(gridScheduler).execute();
+		    	    
+		    	    runstats[2] += System.nanoTime() - tic_tvm;
+		    	    
+		    	    // Calc counts
+					for(int i = 0; i < N[0]; i++) {
+						
+						ncount[ ccentroid[i] ]++;
+						
+						// Add to gradient
+						vec_add(gradients[ ccentroid[i] ], getRowFrom2Darray(v_batch,i,Nc[0]));	
+					}
+				}	
+			}
+			
+		} catch(Throwable t) {		
+			throw new SQLException(t);
+		}
+		
+		// Add centroid contributions
+		for(int k = 0; k < K[0]; k++) {
+			vec_muladd(gradients[k],-ncount[k],getRowFrom2Darray(in_centroids,k,Nc[0]));
+		}
+			
+		runstats[0] = (System.nanoTime() - tic_global)/1e6f;
+		runstats[1] /= 1e6f;
+		runstats[2] /= 1e6f;
+		
+		executor_distance.freeDeviceMemory();
+		
+		GradientReturn T =  new GradientReturn();
+		
+		T.gradients = gradients;
+		T.counts = ncount;
+		T.stats = runstats;
 	
 		try {
 			moonshot.disconnect();
@@ -427,8 +668,8 @@ public class Kmeans {
 		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
 		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
 		
-		gridScheduler.setWorkerGrid("s0.t0", gridworker);
-		gridScheduler.setWorkerGrid("s0.t1", gridworker);
+		gridScheduler.addWorkerGrid("s0.t0", gridworker);
+		gridScheduler.addWorkerGrid("s0.t1", gridworker);
 		
 		// Init return vars
 		int[] ncount = new int[K[0]];
@@ -482,6 +723,52 @@ public class Kmeans {
 		System.runFinalization();	
 	}
 	
+	private static db_object prepare_db_data_pluj(String table, String cols, float batch_percent) throws SQLException {
+		 
+		// Init db connection
+		PlUniJava moonshot = new PlUniJava();
+		try {
+			moonshot.connect();
+			
+			// Detect # cols:
+			int Nc = cols.split(",").length;
+			
+			String query;
+			boolean array;
+			if (Nc > 1) {
+				// Query for individual columns
+				query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+");"; 
+				
+				array = false;
+			} else {
+				// Check if array length is encoded in cols:
+				String[] parts = cols.split(":");
+				if(parts.length < 2) {
+					// Query db for Nc
+					moonshot.execute("select ARRAY_LENGTH("+cols+",1) from "+table+" limit 1;");
+					moonshot.fetch_next();
+					Nc = moonshot.getint(1);
+				} else {
+					Nc = Integer.valueOf(parts[1]);
+				}
+				
+				// Query for 1D array
+				query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
+				
+				array = true;
+			}
+			
+			moonshot.execute(query);
+			
+			return new db_object(moonshot,Nc,array);
+			
+		} catch(Throwable t) {
+			throw new SQLException(t);	
+		}
+	}
+	
+
+	@Deprecated
 	private static db_object prepare_db_data_moonshot(String table, String cols, float batch_percent) throws SQLException {
 		 
 		// Init db connection
@@ -749,8 +1036,172 @@ public class Kmeans {
 		return receiver.iterator();		
 	}
 	
+	public static Iterator kmeans_control_float_pluj(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, boolean centroid_sequence) throws SQLException {
+		ArrayList<kmeans_return> receiver = new ArrayList<>();
+
+		// Init db connection
+		PlUniJava moonshot = new PlUniJava();
+
+		try {
+			moonshot.connect();
+
+			// Obtain datanode information
+			String query = "select string_agg(node_name,',') from pgxc_node where node_type='D';";
+		
+			moonshot.execute(query);
+			moonshot.fetch_next();
+			String nodes = moonshot.getstring(1);
+
+			int Nn = nodes.split(",").length;
+			
+			// Query for Nc
+			int Nc = cols.split(",").length;
+			String[] parts = cols.split(":");
+			boolean array = false;
+			if(Nc < 2) {
+				array = true;
+				// Check if array length is encoded in cols:
+				if(parts.length < 2) {
+					// Query db for Nc
+					moonshot.execute("select ARRAY_LENGTH("+cols+",1) from "+table+" limit 1;");	
+					moonshot.fetch_next();
+					Nc = moonshot.getint(1);
+					
+				} else {
+					Nc = Integer.valueOf(parts[1]);
+				}		
+			}
+				
+			// Query for random datapoints as initial centroids (globally selected)
+			float[][] centroids = new float[K][Nc];
+					
+			if(!array) {
+				query = "select "+cols+" from "+table+" TABLESAMPLE SYSTEM(0.25) limit "+K;
+			} else {
+				query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM(0.25) where cardinality("+parts[0]+")!=0 limit "+K;
+			}
+			
+			moonshot.execute(query);
+
+			for(int i = 0; i < K; i++) {
+				moonshot.fetch_next();
+				
+				if(!array) {
+					for(int c = 1; c < Nc; c++) {
+						centroids[i][c-1] = moonshot.getfloat(c);
+					}
+				} else {
+					double[] A = moonshot.getdoublearray(1); // <- To be changed after change in DB ! ( to Float )
+					
+					for(int c = 0; c < Nc; c++) {
+						centroids[i][c] = (float) A[c];
+					}
+				}
+			}
+		
+			// Set function
+			String func;
+			if(use_tvm) {
+				func = "execute direct on ("+nodes+") $$select kmeans_gradients_tvm_float_pluj";
+				func += "('"+table+"','"+cols+"',"+K+","+batch_percent+","+tvm_batch_size+",";
+			}
+			else {
+				func = "execute direct on ("+nodes+") $$select kmeans_gradients_cpu_float_pluj";
+				
+				func += "('"+table+"','"+cols+"',"+K+","+batch_percent+",";
+			}
+					
+			float[][][] partialGradients = new float[Nn][K][Nc];
+			int[][] Ccounts = new int[Nn][K];
+						
+			// Main loop
+			for(int i = 0; i < I; i++) {
+				// Reset
+				int[] counts = new int[K];
+				float[][] gradients = new float[K][Nc];
+			
+				// Set query
+				query = func + "'"+getPGarrayFrom2Darray(centroids)+"')$$;";
 	
-public static Iterator kmeans_control_float_ms(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, boolean centroid_sequence) throws SQLException {
+				// Execute
+				moonshot.execute(query);
+
+				// Collect
+				int c = 0;
+				float[] stats = new float[1];
+				
+				GradientReturn R =  new GradientReturn();
+
+				while(moonshot.fetch_next()) { 
+					
+					moonshot.getcomplextype(1, R);
+					
+					// 1. Partial gradients as 2D float array
+					partialGradients[c] = R.gradients;
+
+					// 2. Counts as 1D Int array
+					Ccounts[c] = R.counts;
+							
+					// 3. Collect statistics
+					float[] stats_tmp = R.stats;
+
+					// Add
+					vec_add(stats, stats_tmp);
+					
+					c++;			
+				}
+			
+				vec_mul(stats,(float) 1./c);
+				
+				// Calc new centroids
+				for(int n = 0; n < Nn; n++) {
+					for(int k = 0; k < K; k++) {
+						if(Ccounts[n][k] > 0) {
+							// Add counts
+							counts[k] += Ccounts[n][k];
+							// Add partial gradients
+							for(int j = 0; j < Nc; j++) {
+								gradients[k][j] += partialGradients[n][k][j];
+							}
+						}
+					}
+				}
+					
+				// Add
+				for(int k=0; k < K; k++) {
+					if(counts[k] > 0) {
+						for(int j = 0; j < Nc; j++) {
+							centroids[k][j] += 1./counts[k]*gradients[k][j];
+						}
+					}
+				}	
+		
+				if(centroid_sequence) {
+					// Add to return
+					receiver.add( new kmeans_return(array2DdeepCopy(centroids)) );
+				}
+			}
+		
+			if(!centroid_sequence) {
+				// Add to return
+				receiver.add( new kmeans_return(array2DdeepCopy(centroids)) );
+			}
+			
+			moonshot.disconnect();
+
+		} catch(Throwable t) {		
+			throw new SQLException(t);
+		}
+
+		// Force GC
+		System.gc();
+		System.runFinalization();
+		
+		return receiver.listIterator();
+	}
+
+	@Deprecated	
+	public static Iterator kmeans_control_float_ms(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, boolean centroid_sequence) throws SQLException {
 		
 		// Init db connection
 		Connection conn = DriverManager.getConnection(m_url);
@@ -1129,8 +1580,8 @@ public static Iterator kmeans_control_float_ms(String table, String cols, int K,
 		ImmutableTaskGraph immutableTaskGraph = taskGraph.snapshot();
 		TornadoExecutionPlan executor_distance = new TornadoExecutionPlan(immutableTaskGraph);
 		
-		gridScheduler.setWorkerGrid("s0.t0", gridworker);
-		gridScheduler.setWorkerGrid("s0.t1", gridworker);
+		gridScheduler.addWorkerGrid("s0.t0", gridworker);
+		gridScheduler.addWorkerGrid("s0.t1", gridworker);
 		
 		// Init return vars
 		int[] ncount = new int[K[0]];

@@ -35,12 +35,10 @@ package ai.sedn.unsupervised;
 */
 
 public class kmeans_return {
-	float[][] centroids;
-	float[] stats;
+	public float[][] A;
 	
-	public kmeans_return(float[][] cent, float[] stat) {
-		centroids = cent;
-		stats = stat;
+	public kmeans_return(float[][] cent) {
+		A = cent;
 	}
 }
 

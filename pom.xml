@@ -51,12 +51,19 @@
     <artifactId>pljava-api</artifactId>
     <scope>system</scope>
     <version>1.7-SNAPSHOT</version>
-    <systemPath>/ZNVME/xz4/app/share/postgresql/pljava/pljava-api-1.7-SNAPSHOT.jar</systemPath>
+    <systemPath>${env.XC_HOME}/share/postgresql/pljava/pljava-api-2-SNAPSHOT.jar</systemPath>
 	</dependency>
-     <dependency>
+   <dependency>
+    <groupId>plunijava</groupId>
+    <artifactId>plunijava-api</artifactId>
+    <scope>system</scope>
+    <version>0.0.1-SNAPSHOT</version>
+    <systemPath>${env.XC_HOME}/share/postgresql/plunijava/plUniJava-0.0.1-SNAPSHOT.jar</systemPath>
+	</dependency>
+  <dependency>
     <groupId>tornado</groupId>
     <artifactId>tornado-api</artifactId>
-    <version>1.0</version>
-</dependency>
+    <version>1.1.0</version>
+  </dependency>
   </dependencies>
 </project>

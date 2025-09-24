@@ -36,9 +36,8 @@ package ai.sedn.unsupervised;
 
 public class GradientReturn extends MoonshotReturn {
 	
-	public float[][] Test1;
-	public int[] Test2;
-	public float[] Test3;
-	
+	public float[][] gradients;
+	public int[] counts;
+	public float[] stats;
 }
 
