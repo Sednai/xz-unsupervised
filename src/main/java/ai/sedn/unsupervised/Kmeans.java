@@ -1039,6 +1039,11 @@ public class Kmeans {
 	public static Iterator kmeans_control_float_pluj(String table, String cols, int K, int I, float batch_percent, boolean use_tvm, int tvm_batch_size, boolean centroid_sequence) throws SQLException {
 		ArrayList<kmeans_return> receiver = new ArrayList<>();
 
+		// Arg consistency check
+		if(use_tvm && tvm_batch_size < 1) {
+			throw new SQLException("batch size has to be > 0 !"); 
+		}
+
 		// Init db connection
 		PlUniJava moonshot = new PlUniJava();
 
