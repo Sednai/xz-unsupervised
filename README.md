@@ -1,7 +1,7 @@
 # xz-unsupervised - AERO branch
 
 ## Installation
-Requires Postgres v15+, Java 21+, plUniJava and TornadoVM.
+Requires PGXC-v15, Java 21+, plUniJava and TornadoVM.
 
 Clone and run
 ```
@@ -27,3 +27,5 @@ useGPU : Usage of TornadoVM (True or False)
 GPUbatchsize: Batch size to use for TornadoVM
 returCentroidHistory: Return the centroids of each iteration (True or False)
 ```
+
+Note that this implementation is distribution safe, i.e., it does not require uniformity of data over the sharding key. 
