@@ -46,6 +46,7 @@
       <version>3.8.1</version>
       <scope>test</scope>
     </dependency>
+ <!--
     <dependency>
     <groupId>pljava</groupId>
     <artifactId>pljava-api</artifactId>
@@ -53,6 +54,7 @@
     <version>1.7-SNAPSHOT</version>
     <systemPath>${env.XC_HOME}/share/postgresql/pljava/pljava-api-2-SNAPSHOT.jar</systemPath>
 	</dependency>
+-->
    <dependency>
     <groupId>plunijava</groupId>
     <artifactId>plunijava-api</artifactId>
