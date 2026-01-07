@@ -362,7 +362,6 @@ public class Kmeans {
 			
 			// Query for 1D array
 			query = "select "+parts[0]+" from "+table+" TABLESAMPLE SYSTEM("+batch_percent+") where cardinality("+parts[0]+")!=0;"; 	
-			//query = "select "+parts[0]+" from "+table+" LIMIT 1000000;"; 	
 			
 			array = true;
 		}
