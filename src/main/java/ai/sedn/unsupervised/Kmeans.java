@@ -843,6 +843,24 @@ public class Kmeans {
 		int Nc = v_in.length;
 		int K = in_centroids.length/Nc;
 		
+		// Unpack centroids;
+		float[][] centroids = float_1D_to_float_2D(in_centroids, K, Nc);
+		
+		return euclidean_distance_classmembership_cpu_float(v_in, centroids);	
+	}
+	
+	/**
+	 * Calculate the class membership for vector under given centroids
+	 * 
+	 * @param v_in : vector
+	 * @param in_centroids : centroids
+	 * @return class membership as int
+	 * @throws SQLException
+	 */
+	public static int euclidean_distance_classmembership_cpu_float(double[] v_in, float[][] centroids) throws SQLException {
+		int Nc = v_in.length;
+		int K = centroids.length;
+		
 		// <- Remove uppon change of db to double table
 		// Convert in
 		float[] v = new float[Nc];
@@ -850,9 +868,6 @@ public class Kmeans {
 			v[i] = (float) v_in[i];
 		}
 		
-		// Unpack centroids;
-		float[][] centroids = float_1D_to_float_2D(in_centroids, K, Nc);
-
 		// Precompute centroid dists
 		float[] nc = new float[K];
 		for(int k = 0; k < K; k++) {
@@ -877,7 +892,6 @@ public class Kmeans {
 		
 		return minc;	
 	}
-	
 	
 	/**
 	 * TornadoVM based calculation of kmeans stochastic gradients
