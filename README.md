@@ -25,7 +25,7 @@ iterations : Number of iterations to run
 sampleRate : % of data to sample in each iteration
 useGPU : Usage of TornadoVM (True or False)
 GPUbatchsize: Batch size to use for TornadoVM
-returCentroidHistory: Return the centroids of each iteration (True or False)
+returnCentroidHistory: Return the centroids of each iteration (True or False)
 ```
 
 Note that this implementation is distribution safe, i.e., it does not require uniformity of data over the sharding key. 
