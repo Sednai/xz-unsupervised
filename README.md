@@ -29,3 +29,18 @@ returCentroidHistory: Return the centroids of each iteration (True or False)
 ```
 
 Note that this implementation is distribution safe, i.e., it does not require uniformity of data over the sharding key. 
+
+For inference, use the function
+```
+kmeans_inference_cpu_float_pluj(vector Float8[], centroids Float4[])
+``` 
+with
+```
+vector : Vector of data (double)
+centroids: 2D array with centroids (float)
+```
+For example
+```
+select kmeans_inference_cpu_float_pluj(t.data, '{{...,...},{...,...},...}') from (select colname from tablename) as t limit 10000;
+```
+Inference is CPU based and will be pushed down and parallelized by PGXC. 
